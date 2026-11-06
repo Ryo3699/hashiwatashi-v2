@@ -1,16 +1,15 @@
 // カルテの保存。お客様ごとに <runtimeDir>/<id>.karte.json へ、来店ごとの美容師のメモを残す。
 // 会話のファイル（<id>.json）とは別＝聞き取りを「最初から」やり直しても消えない。AI は使わない。
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { KARTE_MAX_LEN, type KarteEntry, type KarteView } from "../lib/types";
-import { findCustomer, runtimeDir, withLock, type Session } from "./store";
+import { readText, writeText } from "./storage";
+import { findCustomer, withLock, type Session } from "./store";
 
 type KarteFile = { customerId: string; entries: KarteEntry[] };
 
-function fileOf(id: string): string {
+function nameOf(id: string): string {
   // id は customers.json にある物だけ通す（findCustomer 済み）。念のためここでも確かめる。
   if (!findCustomer(id)) throw new Error("知らないお客様の番号です");
-  return path.join(runtimeDir(), `${id}.karte.json`);
+  return `${id}.karte.json`;
 }
 
 function normalizeEntry(e: KarteEntry): KarteEntry {
@@ -35,13 +34,9 @@ function isEntryLike(e: unknown): e is KarteEntry {
  * 投げる＝保存（saveKarteEntry）が壊れたファイルを1件だけの中身で上書きしない。画面側は karteOf で受け止める。
  */
 export async function loadKarte(id: string): Promise<KarteFile> {
-  let text: string;
-  try {
-    text = await fs.readFile(fileOf(id), "utf8");
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { customerId: id, entries: [] };
-    throw e;
-  }
+  // 無い＝空（ENOENT と、公開モードで開けない保存）。ENOENT 以外の読めない時は今まで通り投げる
+  const text = await readText(nameOf(id));
+  if (text === null) return { customerId: id, entries: [] };
   let f: unknown;
   try {
     f = JSON.parse(text);
@@ -85,7 +80,7 @@ export function copyFromSession(s: Session): { wish: string | null; keep: string
 /** 今の来店のカルテを保存（同じ visitId があれば上書き）。did・next は呼び出し側で整える（前後の空白・字数） */
 export async function saveKarteEntry(s: Session, input: { did: string; next: string }): Promise<KarteView> {
   return withLock(`karte:${s.customerId}`, async () => {
-    const file = fileOf(s.customerId);
+    const name = nameOf(s.customerId);
     const karte = await loadKarte(s.customerId);
     const entry: KarteEntry = {
       visitId: s.visitId,
@@ -97,10 +92,7 @@ export async function saveKarteEntry(s: Session, input: { did: string; next: str
     const i = karte.entries.findIndex((e) => e.visitId === s.visitId);
     if (i >= 0) karte.entries[i] = entry;
     else karte.entries.push(entry);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(karte, null, 2), "utf8");
-    await fs.rename(tmp, file);
+    await writeText(name, JSON.stringify(karte, null, 2));
     return karteView(karte.entries, s);
   });
 }

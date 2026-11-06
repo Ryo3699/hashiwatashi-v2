@@ -1,8 +1,10 @@
 // API ルートが使う Claude の口。HASHI_FAKE=1 なら偽物（録画の練習用・鍵なしで動く）。
 // 鍵は lib/config.ts の getApiKey（process.env.ANTHROPIC_API_KEY）だけが読む。ここでは触らない。
-import { createRealClient, type ClaudeClient, type JsonRequest } from "../lib/claude";
+import { createRealClient, type ClaudeClient, type JsonRequest, type Usage } from "../lib/claude";
 import { FINISH_TEXT } from "../lib/config";
 import { buildSummarizeSystem } from "../lib/summarize";
+import { kv } from "./kv";
+import { isPublicMode, jstDay } from "./public";
 
 export function isFake(): boolean {
   return process.env.HASHI_FAKE === "1";
@@ -12,8 +14,41 @@ let real: ClaudeClient | undefined;
 let fake: ClaudeClient | undefined;
 
 export function getClaude(): ClaudeClient {
-  if (isFake()) return (fake ??= createFake());
-  return (real ??= createRealClient());
+  if (isFake()) {
+    // 偽物の Claude を Vercel 上で動かさない（proxy でも止めるが、ここでも）
+    if (process.env.VERCEL) throw new Error("Vercel 上では HASHI_FAKE は使えません");
+    return (fake ??= createFake());
+  }
+  return (real ??= createRealClient(
+    undefined,
+    isPublicMode() ? { onUsage: recordUsage, maxRetries: 1, timeoutMs: 110_000 } : {},
+  ));
+}
+
+const USAGE_TTL_SEC = 40 * 24 * 3600;
+const USAGE_WAIT_MS = 1500;
+
+/** 公開モードだけ：使ったトークンを日・モデルごとに Redis へ足す。待つのは最大1.5秒・失敗しても会話は止めない */
+export async function recordUsage(u: Usage): Promise<void> {
+  const base = `usage:${jstDay()}:${u.model}`;
+  const write = kv
+    .incrMany([
+      { key: `${base}:in`, ttlSec: USAGE_TTL_SEC, by: u.input_tokens },
+      { key: `${base}:out`, ttlSec: USAGE_TTL_SEC, by: u.output_tokens },
+    ])
+    .then(() => undefined);
+  write.catch(() => undefined); // 待たずに終わった後の失敗も握る
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, USAGE_WAIT_MS);
+  });
+  try {
+    await Promise.race([write, wait]);
+  } catch {
+    console.error("[usage] 記録できませんでした");
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

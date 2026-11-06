@@ -13,6 +13,7 @@ import {
   type Turn,
   type Via,
 } from "../../../lib/types";
+import { shownOr, throwIfShown } from "../../../lib/api-error";
 import { COLORS, RADIUS } from "../../theme";
 
 // visitId＝この画面が見ている来店（カルテを残す時に送り返す）
@@ -40,10 +41,11 @@ export default function Board({ customerId, name }: { customerId: string; name: 
     setError("");
     try {
       const res = await fetch(`/api/summary?customerId=${encodeURIComponent(customerId)}`, { cache: "no-store" });
+      await throwIfShown(res);
       if (!res.ok) throw new Error();
       setView((await res.json()) as View);
-    } catch {
-      setError("読み込めませんでした。");
+    } catch (e) {
+      setError(shownOr(e, "読み込めませんでした。"));
     }
   }, [customerId]);
 
@@ -60,10 +62,11 @@ export default function Board({ customerId, name }: { customerId: string; name: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerId }),
       });
+      await throwIfShown(res);
       if (!res.ok) throw new Error();
       setView((await res.json()) as View);
-    } catch {
-      setError("まとめを作れませんでした。もう一度お試しください。");
+    } catch (e) {
+      setError(shownOr(e, "まとめを作れませんでした。もう一度お試しください。"));
     } finally {
       setWorking(false);
     }
@@ -367,6 +370,8 @@ function KarteForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerId, visitId, did, next }),
       });
+      // 公開モードの入口が返す 401・429・503（文つき）は、その文をそのまま出す
+      await throwIfShown(res);
       if (!res.ok) {
         // サーバーが言う理由をそのまま出す（409 は、もう一度押しても通らない）。読めない時と 500 だけ「もう一度」
         const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
@@ -377,8 +382,8 @@ function KarteForm({
       const body = (await res.json()) as { karte: KarteView };
       setSavedAt(body.karte.current?.savedAt ?? new Date().toISOString());
       onSaved(body.karte);
-    } catch {
-      setErr("カルテを残せませんでした。もう一度お試しください。");
+    } catch (e) {
+      setErr(shownOr(e, "カルテを残せませんでした。もう一度お試しください。"));
     } finally {
       setSaving(false);
     }

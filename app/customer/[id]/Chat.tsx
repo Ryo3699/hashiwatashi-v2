@@ -1,6 +1,7 @@
 "use client";
 // お客様のスマホ画面。AI が1問ずつ聞く。原因の推測・型・検査の話はここには出さない。写真ボタンは置かない。
 import { useCallback, useEffect, useRef, useState } from "react";
+import { shownOr, throwIfShown } from "../../../lib/api-error";
 import { FIXED_SUGGESTIONS } from "../../../lib/config";
 import { COLORS, RADIUS } from "../../theme";
 
@@ -24,6 +25,7 @@ async function post(url: string, body: unknown): Promise<{ ok: boolean; data: Re
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!res.ok) await throwIfShown(res);
   let data: Record<string, unknown> = {};
   try {
     data = await res.json();
@@ -33,7 +35,7 @@ async function post(url: string, body: unknown): Promise<{ ok: boolean; data: Re
   return { ok: res.ok, data };
 }
 
-export default function Chat({ customerId, name }: { customerId: string; name: string }) {
+export default function Chat({ customerId, name, notice }: { customerId: string; name: string; notice?: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [phase, setPhase] = useState<Phase>("starting");
   const [draft, setDraft] = useState("");
@@ -58,8 +60,8 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
       setMsgs([{ role: "ai", text: String(r.data.text) }]);
       setSuggestions(readSuggestions(r.data.suggestions));
       setPhase("asking");
-    } catch {
-      setError("うまく始められませんでした。もう一度お試しください。");
+    } catch (e) {
+      setError(shownOr(e, "うまく始められませんでした。もう一度お試しください。"));
     }
   }, [customerId]);
 
@@ -70,10 +72,13 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
     let saved: Saved;
     try {
       const res = await fetch(`/api/interview?customerId=${encodeURIComponent(customerId)}`, { cache: "no-store" });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        await throwIfShown(res);
+        throw new Error();
+      }
       saved = (await res.json()) as Saved;
-    } catch {
-      setError("うまく始められませんでした。もう一度お試しください。");
+    } catch (e) {
+      setError(shownOr(e, "うまく始められませんでした。もう一度お試しください。"));
       return;
     }
     if (saved.status === "none" || (saved.status === "asking" && saved.pending === null)) {
@@ -139,11 +144,11 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
       } else {
         setPhase("asking");
       }
-    } catch {
+    } catch (e) {
       // 送れなかった：自分の吹き出しを戻して、入力欄に答えを返す
       setMsgs((m) => m.slice(0, -1));
       setDraft(answer);
-      setError("うまく送れませんでした。もう一度送ってください。");
+      setError(shownOr(e, "うまく送れませんでした。もう一度送ってください。"));
       setPhase("asking");
     }
   }
@@ -168,6 +173,9 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
         <p style={{ margin: "6px 0 0", fontSize: 13, color: COLORS.sub, lineHeight: 1.7 }}>
           {name}、ご来店前にいくつかお聞きします。分かる範囲で、思ったままで大丈夫です。
         </p>
+        {notice && (
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: COLORS.sub, lineHeight: 1.6 }}>{notice}</p>
+        )}
       </header>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 18px", display: "grid", gap: 14, alignContent: "start" }}>

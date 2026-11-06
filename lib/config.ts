@@ -1,12 +1,22 @@
 // 設定はここ1か所。モデル名を変える時はここだけ直す。
+// 公開モード（HASHI_PUBLIC=1）の時だけ、HASHI_INTERVIEW_MODEL / HASHI_SUMMARY_MODEL で上書きできる（既定は下の値）。
+function modelOr(envName: string, fallback: string): string {
+  if (process.env.HASHI_PUBLIC !== "1") return fallback;
+  return process.env[envName]?.trim() || fallback;
+}
+
 export const MODELS = {
   /** 来店前の聞き取り（1問ずつ） */
-  interview: "claude-sonnet-5-5",
+  get interview(): string {
+    return modelOr("HASHI_INTERVIEW_MODEL", "claude-sonnet-5-5");
+  },
   /** 美容師向けのまとめ */
-  summarize: "claude-opus-5-5",
+  get summarize(): string {
+    return modelOr("HASHI_SUMMARY_MODEL", "claude-opus-5-5");
+  },
   /** scripts/trial.ts のお客様役 */
   persona: "claude-sonnet-5-5",
-} as const;
+};
 
 /** 聞く問いの最大数。7問目の答えが来たら必ず終わる。 */
 export const MAX_QUESTIONS = 7;

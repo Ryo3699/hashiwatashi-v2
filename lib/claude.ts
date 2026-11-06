@@ -58,15 +58,19 @@ export type MessagesApi = {
     create(params: Record<string, unknown>): Promise<{
       content: Array<{ type: string; text?: string }>;
       stop_reason?: string | null;
+      usage?: { input_tokens?: number; output_tokens?: number };
     }>;
   };
 };
+
+/** 1回の呼び出しで使ったトークン（公開モードの使った量の記録用） */
+export type Usage = { model: string; input_tokens: number; output_tokens: number };
 
 /**
  * 本物。SDK の構造化出力（output_config.format = json_schema）で JSON を受ける。
  * Anthropic のクライアントは最初の呼び出しまで作らない（import しただけでは env を読まない）。
  */
-export function createRealClient(sdk?: MessagesApi): ClaudeClient {
+export function createRealClient(sdk?: MessagesApi, opts: { onUsage?: (u: Usage) => void | Promise<void>; maxRetries?: number; timeoutMs?: number } = {}): ClaudeClient {
   let cached: MessagesApi | undefined = sdk;
   const getSdk = (): MessagesApi => {
     if (!cached) {
@@ -76,7 +80,12 @@ export function createRealClient(sdk?: MessagesApi): ClaudeClient {
       } catch (e) {
         throw new ClaudeFatalError(e instanceof Error ? e.message : "鍵がありません");
       }
-      cached = new Anthropic({ apiKey }) as unknown as MessagesApi;
+      cached = new Anthropic({
+        apiKey,
+        // 公開モードだけ server/claude.ts が渡す：関数が切られたあとも上流の呼び出しが続かないように
+        ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+        ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+      }) as unknown as MessagesApi;
     }
     return cached;
   };
@@ -93,6 +102,18 @@ export function createRealClient(sdk?: MessagesApi): ClaudeClient {
           ...(req.effort ? { effort: req.effort } : {}),
         },
       });
+      // 使った量は、返事の中身が失敗でも数える。記録の失敗で会話は止めない
+      if (opts.onUsage && res.usage) {
+        try {
+          await opts.onUsage({
+            model: req.model,
+            input_tokens: res.usage.input_tokens ?? 0,
+            output_tokens: res.usage.output_tokens ?? 0,
+          });
+        } catch {
+          /* 記録できなくても続ける */
+        }
+      }
       if (res.stop_reason === "refusal") {
         throw new ClaudeReplyError("Claude が答えを断りました（stop_reason=refusal）");
       }
@@ -111,7 +132,9 @@ export function createRealClient(sdk?: MessagesApi): ClaudeClient {
       try {
         return JSON.parse(text);
       } catch {
-        throw new ClaudeReplyError(`Claude の返事が JSON になっていません: ${text.slice(0, 120)}`);
+        // 公開モードでは返事の中身（お客様の答えを含みうる）をエラー文に入れない＝ログに出さない
+        const shown = process.env.HASHI_PUBLIC === "1" ? `${text.length}文字` : text.slice(0, 120);
+        throw new ClaudeReplyError(`Claude の返事が JSON になっていません: ${shown}`);
       }
     },
   };

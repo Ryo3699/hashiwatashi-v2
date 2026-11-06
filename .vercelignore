@@ -1,0 +1,7 @@
+data/runtime
+runs
+.env*
+.claude
+.next
+node_modules
+.vercel
