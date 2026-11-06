@@ -1,0 +1,27 @@
+{
+  "name": "hashiwatashi-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "来店前の聞き取り → 美容師へのヒント（AIは決めない・推測参考まで）",
+  "scripts": {
+    "dev": "next dev --webpack -p 3400",
+    "build": "next build --webpack",
+    "start": "next start -p 3400",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "trial": "tsx scripts/trial.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "next": "^16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
