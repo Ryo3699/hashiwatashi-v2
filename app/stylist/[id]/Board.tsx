@@ -104,7 +104,16 @@ export default function Board({ customerId, name }: { customerId: string; name: 
           </Note>
         )}
 
-        {view?.status === "finished" && <Note>{working ? "まとめを作っています…（少し時間がかかります）" : "まとめを準備しています…"}</Note>}
+        {view?.status === "finished" &&
+          (error ? (
+            <Note>
+              <button type="button" onClick={() => void make()} disabled={working} style={ghostButton}>
+                {working ? "作り直しています…" : "作り直す"}
+              </button>
+            </Note>
+          ) : (
+            <Note>{working ? "まとめを作っています…（少し時間がかかります）" : "まとめを準備しています…"}</Note>
+          ))}
 
         {view?.status === "ready" && <Ready view={view} onRetry={() => void make()} working={working} />}
       </div>

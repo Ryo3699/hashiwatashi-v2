@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MAX_QUESTIONS } from "../lib/config";
-import { POST as interviewPost } from "../app/api/interview/route";
+import { GET as interviewGet, POST as interviewPost } from "../app/api/interview/route";
 import { GET as summaryGet, POST as summaryPost } from "../app/api/summary/route";
 
 let dir: string;
@@ -68,5 +68,35 @@ describe("api/interview + api/summary（偽物の Claude）", () => {
   it("まだ何も無いお客様は status: none", async () => {
     const r = await (await summaryGet(new Request("http://x/api/summary?customerId=p3"))).json();
     expect(r.status).toBe("none");
+  });
+
+  it("開き直しても会話は消えない：GET で今の会話が読め、続きから答えられる（start は押した時だけ上書き）", async () => {
+    await interviewPost(post({ customerId: "p3", action: "start" }));
+    const get = (id: string) => interviewGet(new Request(`http://x/api/interview?customerId=${id}`));
+    const none = await (await get("p2")).json();
+    // p2 は前のテストで始めただけ（答え0・問いは出している）
+    expect(none.status).toBe("asking");
+    expect(none.turns).toEqual([]);
+    expect(none.pending).toBe("今日いちばん気になっていることは何ですか？");
+
+    await interviewPost(post({ customerId: "p3", answer: "カラーがすぐ落ちる" }));
+    const mid = await (await get("p3")).json();
+    expect(mid.status).toBe("asking");
+    expect(mid.turns).toHaveLength(1);
+    expect(mid.turns[0].answer).toBe("カラーがすぐ落ちる");
+    expect(typeof mid.pending).toBe("string");
+
+    // 画面を開き直しても（GET を何度叩いても）答えは残る
+    const again = await (await get("p3")).json();
+    expect(again.turns).toHaveLength(1);
+
+    // 終わった会話は、終わりの文つきで読める
+    const done = await (await get("p1")).json();
+    expect(done.status).toBe("finished");
+    expect(done.finishText).toBeTruthy();
+    expect(done.turns.length).toBeGreaterThan(0);
+    expect(done.pending).toBeNull();
+
+    expect((await get("zzz")).status).toBe(404);
   });
 });

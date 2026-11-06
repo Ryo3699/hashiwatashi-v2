@@ -1,5 +1,5 @@
 // 美容師向けのまとめ：会話全部を受け取り、隠れた悩み＋「なぜ」のヒント（推測・参考）を返す。
-import type { ClaudeClient } from "./claude";
+import { isFatalClaudeError, type ClaudeClient } from "./claude";
 import { MAX_ANSWER_CHARS, MODELS } from "./config";
 import { checkSummary, parseSummary, type SummaryCheck } from "./checks";
 import type { Removed, Summary, Turn } from "./types";
@@ -132,13 +132,21 @@ export async function summarize(turns: Turn[], claude: ClaudeClient): Promise<Su
   let lastGood: { summary: Summary; check: SummaryCheck } | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const raw = await claude.json({
-      model: MODELS.summarize,
-      system,
-      messages: [{ role: "user", content: feedback ? `${user}\n\n${feedback}` : user }],
-      schema: SCHEMA,
-      maxTokens: 2000,
-    });
+    let raw: unknown;
+    try {
+      raw = await claude.json({
+        model: MODELS.summarize,
+        system,
+        messages: [{ role: "user", content: feedback ? `${user}\n\n${feedback}` : user }],
+        schema: SCHEMA,
+        // 考えた分も数える。ストリームを使わない時の目安（約16000）まで余裕を持たせる
+        maxTokens: 16000,
+      });
+    } catch (e) {
+      // 空・途中で切れた・断られた・JSON でない → 不合格の1回として数える（鍵や認証の誤りは上へ）
+      if (isFatalClaudeError(e)) throw e;
+      continue;
+    }
     const parsed = parseSummary(raw);
     if (!parsed) {
       feedback =

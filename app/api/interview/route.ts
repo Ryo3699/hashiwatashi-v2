@@ -1,6 +1,7 @@
 // お客様の画面 → 次の問い or 終わりの文。会話はサーバー側（data/runtime/）に残す。
 // POST { customerId, action: "start" }  … 最初から始める（最初の問いを返す）
 // POST { customerId, answer }           … いまの問いへの答えを足して、次の1手を返す
+// GET  ?customerId=p1                   … 今の会話（開き直した画面が続きから出せるように）。会話は消さない
 import { MAX_QUESTIONS } from "../../../lib/config";
 import { nextStep } from "../../../lib/interview";
 import { getClaude } from "../../../server/claude";
@@ -13,6 +14,26 @@ const MAX_ANSWER_INPUT = 1000;
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+export async function GET(req: Request): Promise<Response> {
+  const customer = findCustomer(new URL(req.url).searchParams.get("customerId"));
+  if (!customer) return json({ error: "お客様が見つかりません" }, 404);
+  try {
+    const s = await loadSession(customer.id);
+    if (!s || (s.turns.length === 0 && s.pending === null && !s.finished)) return json({ status: "none" });
+    return json({
+      status: s.finished ? "finished" : "asking",
+      turns: s.turns,
+      pending: s.pending,
+      finishText: s.finishText,
+      answered: s.turns.length,
+      max: MAX_QUESTIONS,
+    });
+  } catch (e) {
+    console.error("[api/interview GET]", e instanceof Error ? e.message : "error");
+    return json({ error: "読めませんでした" }, 500);
+  }
 }
 
 export async function POST(req: Request): Promise<Response> {

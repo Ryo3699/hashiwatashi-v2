@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FakeClaude } from "../lib/claude";
+import { ClaudeFatalError, ClaudeReplyError, FakeClaude } from "../lib/claude";
 import { MODELS } from "../lib/config";
 import { FALLBACK_WORRY_TEXT, summarize } from "../lib/summarize";
 import type { Summary, Turn } from "../lib/types";
@@ -100,5 +100,65 @@ describe("summarize", () => {
     const r = await summarize([], fake);
     expect(r.failed).toBe(true);
     expect(fake.calls.length).toBe(0);
+  });
+
+  // ---- 本物の Claude でだけ起きる失敗（返事が空・途中で切れた・断られた）の道 ----
+  it("1回目が例外 → 作り直しで合格すれば、そのまま使う", async () => {
+    const fake = new FakeClaude([
+      () => {
+        throw new ClaudeReplyError("返事が途中で切れました（stop_reason=max_tokens）");
+      },
+      good(),
+    ]);
+    const r = await summarize(turns, fake);
+    expect(fake.calls.length).toBe(2);
+    expect(r).toMatchObject({ attempts: 2, failed: false, removed: [] });
+    expect(r.summary).toEqual(good());
+  });
+
+  it("2回とも例外 → 例外を上に投げず、failed のまとめ", async () => {
+    const fake = new FakeClaude(
+      [
+        () => {
+          throw new ClaudeReplyError("断られました");
+        },
+      ],
+      { repeatLast: true },
+    );
+    const r = await summarize(turns, fake);
+    expect(fake.calls.length).toBe(2);
+    expect(r).toMatchObject({ failed: true, attempts: 2 });
+    expect(r.summary.hidden_worry.text).toBe(FALLBACK_WORRY_TEXT);
+    expect(r.summary.hints).toEqual([]);
+  });
+
+  it("1回目はNG・2回目が例外 → 1回目のまとめからNGだけ外して出す", async () => {
+    const bad = good();
+    bad.hints[0].text = "乾かし方が原因です。";
+    const fake = new FakeClaude([
+      bad,
+      () => {
+        throw new ClaudeReplyError("空");
+      },
+    ]);
+    const r = await summarize(turns, fake);
+    expect(r.failed).toBe(false);
+    expect(r.summary.hints.map((h) => h.kind)).toEqual(["home_care", "hair_and_style"]);
+    expect(r.removed).toHaveLength(1);
+  });
+
+  it("鍵が無いなどの失敗は、failed にせず上へ伝える", async () => {
+    const fake = new FakeClaude([
+      () => {
+        throw new ClaudeFatalError("ANTHROPIC_API_KEY が未設定です");
+      },
+    ]);
+    await expect(summarize(turns, fake)).rejects.toThrow("ANTHROPIC_API_KEY");
+  });
+
+  it("まとめの呼び出しは、考えた分も入る大きさの上限（16000）", async () => {
+    const fake = new FakeClaude([good()]);
+    await summarize(turns, fake);
+    expect(fake.calls[0].maxTokens).toBeGreaterThanOrEqual(16000);
   });
 });

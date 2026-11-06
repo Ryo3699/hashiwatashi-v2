@@ -11,7 +11,39 @@ export type JsonRequest = {
   /** 返してほしい JSON の形（JSON Schema・additionalProperties:false を付ける） */
   schema: Record<string, unknown>;
   maxTokens?: number;
+  /**
+   * 考える量。Sonnet 5.5 / Opus 5.5 は thinking を省くと自動で考え、考えた分も max_tokens に数える。
+   * 短い返事でいい呼び出しは "low" にする（thinking:{type:"disabled"} は 400 になるので使わない）。
+   */
+  effort?: "low" | "medium" | "high";
 };
+
+/**
+ * 返事の中身の失敗（空・途中で切れた・断られた・JSON でない）。
+ * 呼ぶ側は「不合格の1回」として数え、作り直し → 定型に進める。
+ */
+export class ClaudeReplyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaudeReplyError";
+  }
+}
+
+/** 鍵が無い・認証や依頼の形の誤りなど、作り直しても直らない失敗（定型に逃げずに上へ伝える） */
+export class ClaudeFatalError extends Error {
+  readonly fatal = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaudeFatalError";
+  }
+}
+
+export function isFatalClaudeError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const x = e as { fatal?: unknown; status?: unknown };
+  if (x.fatal === true) return true;
+  return typeof x.status === "number" && [400, 401, 403, 404].includes(x.status);
+}
 
 /** Claude の口。JSON（構造化出力）で受け取る。形の検証は呼ぶ側（checks.ts）がする。 */
 export interface ClaudeClient {
@@ -37,7 +69,15 @@ export type MessagesApi = {
 export function createRealClient(sdk?: MessagesApi): ClaudeClient {
   let cached: MessagesApi | undefined = sdk;
   const getSdk = (): MessagesApi => {
-    if (!cached) cached = new Anthropic({ apiKey: getApiKey() }) as unknown as MessagesApi;
+    if (!cached) {
+      let apiKey: string;
+      try {
+        apiKey = getApiKey();
+      } catch (e) {
+        throw new ClaudeFatalError(e instanceof Error ? e.message : "鍵がありません");
+      }
+      cached = new Anthropic({ apiKey }) as unknown as MessagesApi;
+    }
     return cached;
   };
 
@@ -48,19 +88,30 @@ export function createRealClient(sdk?: MessagesApi): ClaudeClient {
         max_tokens: req.maxTokens ?? 1500,
         system: req.system,
         messages: req.messages,
-        output_config: { format: { type: "json_schema", schema: req.schema } },
+        output_config: {
+          format: { type: "json_schema", schema: req.schema },
+          ...(req.effort ? { effort: req.effort } : {}),
+        },
       });
+      if (res.stop_reason === "refusal") {
+        throw new ClaudeReplyError("Claude が答えを断りました（stop_reason=refusal）");
+      }
+      if (res.stop_reason === "max_tokens") {
+        throw new ClaudeReplyError(
+          `Claude の返事が途中で切れました（stop_reason=max_tokens・上限${req.maxTokens ?? 1500}）`,
+        );
+      }
       const text = res.content
         .filter((b) => b.type === "text" && typeof b.text === "string")
         .map((b) => b.text)
         .join("");
       if (!text.trim()) {
-        throw new Error(`Claude の返事が空でした（stop_reason=${res.stop_reason ?? "?"}）`);
+        throw new ClaudeReplyError(`Claude の返事が空でした（stop_reason=${res.stop_reason ?? "?"}）`);
       }
       try {
         return JSON.parse(text);
       } catch {
-        throw new Error(`Claude の返事が JSON になっていません: ${text.slice(0, 120)}`);
+        throw new ClaudeReplyError(`Claude の返事が JSON になっていません: ${text.slice(0, 120)}`);
       }
     },
   };

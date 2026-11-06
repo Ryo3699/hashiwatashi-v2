@@ -56,7 +56,8 @@ async function personaAnswer(p: Persona, turns: Turn[], question: string, claude
     system: buildPersonaSystem(p),
     messages: [{ role: "user", content: buildPersonaUser(turns, question) }],
     schema: PERSONA_SCHEMA,
-    maxTokens: 300,
+    maxTokens: 3000,
+    effort: "low",
   })) as { answer?: unknown } | null;
   const a = raw && typeof raw.answer === "string" ? raw.answer.trim() : "";
   if (!a) throw new Error("お客様役の答えが空でした");

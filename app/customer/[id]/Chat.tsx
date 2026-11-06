@@ -5,7 +5,12 @@ import { COLORS, RADIUS } from "../../theme";
 
 type Msg = { role: "ai" | "me"; text: string };
 type Phase = "starting" | "asking" | "sending" | "closed";
-type Prep = "idle" | "working" | "done" | "error";
+
+type SavedTurn = { question: string; answer: string };
+type Saved =
+  | { status: "none" }
+  | { status: "asking"; turns: SavedTurn[]; pending: string | null }
+  | { status: "finished"; turns: SavedTurn[]; finishText: string | null };
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
   const res = await fetch(url, {
@@ -27,11 +32,17 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
   const [phase, setPhase] = useState<Phase>("starting");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
-  const [prep, setPrep] = useState<Prep>("idle");
   const endRef = useRef<HTMLDivElement>(null);
 
+  // 美容師のまとめは裏で作っておく（投げっぱなし。失敗しても美容師の画面が自分で作り直せる）
+  const prepareSummary = useCallback(() => {
+    void post("/api/summary", { customerId }).catch(() => undefined);
+  }, [customerId]);
+
+  // 最初から始める（会話を空にして、最初の問いを出す）。開き直しでは呼ばない
   const start = useCallback(async () => {
     setError("");
+    setPhase("starting");
     try {
       const r = await post("/api/interview", { customerId, action: "start" });
       if (!r.ok) throw new Error();
@@ -42,24 +53,53 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
     }
   }, [customerId]);
 
+  // 開いた時：今の会話があれば続きから出す（再読み込み・「戻る」で答えを消さない）。無い時だけ始める
+  const init = useCallback(async () => {
+    setError("");
+    setPhase("starting");
+    let saved: Saved;
+    try {
+      const res = await fetch(`/api/interview?customerId=${encodeURIComponent(customerId)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      saved = (await res.json()) as Saved;
+    } catch {
+      setError("うまく始められませんでした。もう一度お試しください。");
+      return;
+    }
+    if (saved.status === "none" || (saved.status === "asking" && saved.pending === null)) {
+      await start();
+      return;
+    }
+    const restored: Msg[] = saved.turns.flatMap((t): Msg[] => [
+      { role: "ai", text: t.question },
+      { role: "me", text: t.answer },
+    ]);
+    if (saved.status === "finished") {
+      if (saved.finishText) restored.push({ role: "ai", text: saved.finishText });
+      setMsgs(restored);
+      setPhase("closed");
+      prepareSummary();
+    } else {
+      restored.push({ role: "ai", text: String(saved.pending) });
+      setMsgs(restored);
+      setPhase("asking");
+    }
+  }, [customerId, start, prepareSummary]);
+
   useEffect(() => {
-    void start();
-  }, [start]);
+    void init();
+  }, [init]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgs, phase, prep, error]);
+  }, [msgs, phase, error]);
 
-  const makeSummary = useCallback(async () => {
-    setPrep("working");
-    try {
-      const r = await post("/api/summary", { customerId });
-      if (!r.ok) throw new Error();
-      setPrep("done");
-    } catch {
-      setPrep("error");
-    }
-  }, [customerId]);
+  function restart() {
+    if (!window.confirm("最初からやり直しますか？ これまでの答えは消えます。")) return;
+    setDraft("");
+    setMsgs([]);
+    void start();
+  }
 
   async function send() {
     const answer = draft.trim();
@@ -74,7 +114,7 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
       setMsgs((m) => [...m, { role: "ai", text: String(r.data.text) }]);
       if (r.data.action === "finish") {
         setPhase("closed");
-        void makeSummary();
+        prepareSummary();
       } else {
         setPhase("asking");
       }
@@ -118,29 +158,20 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
         )}
         {phase === "closed" && (
           <div style={{ display: "grid", gap: 12, justifyItems: "center", padding: "10px 0 6px" }}>
-            {prep === "working" && (
-              <p style={{ margin: 0, fontSize: 13, color: COLORS.sub }}>少しお待ちください…</p>
-            )}
-            {prep === "error" && (
-              <button type="button" onClick={() => void makeSummary()} style={ghostButton}>
-                もう一度つなぐ
-              </button>
-            )}
-            {prep === "done" && (
-              <>
-                <a href={`/stylist/${customerId}`} style={primaryButton}>
-                  美容師の画面へ
-                </a>
-                <p style={{ margin: 0, fontSize: 12, color: COLORS.sub }}>（デモ用：美容師の側の画面に移ります）</p>
-              </>
-            )}
+            <a href={`/stylist/${customerId}`} style={primaryButton}>
+              美容師の画面へ
+            </a>
+            <p style={{ margin: 0, fontSize: 12, color: COLORS.sub }}>（デモ用：美容師の側の画面に移ります）</p>
+            <button type="button" onClick={restart} style={linkButton}>
+              最初からやり直す
+            </button>
           </div>
         )}
         {error && (
           <p style={{ margin: 0, fontSize: 13, color: COLORS.warn, background: COLORS.warnSoft, padding: "10px 14px", borderRadius: 12 }}>
             {error}{" "}
             {phase === "starting" && (
-              <button type="button" onClick={() => void start()} style={{ ...ghostButton, padding: "4px 10px", fontSize: 12 }}>
+              <button type="button" onClick={() => void init()} style={{ ...ghostButton, padding: "4px 10px", fontSize: 12 }}>
                 やり直す
               </button>
             )}
@@ -195,6 +226,13 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
               送る
             </button>
           </div>
+          {msgs.length > 2 && (
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <button type="button" onClick={restart} disabled={phase !== "asking"} style={linkButton}>
+                最初からやり直す
+              </button>
+            </div>
+          )}
         </form>
       )}
     </main>
@@ -247,5 +285,16 @@ const ghostButton: React.CSSProperties = {
   padding: "10px 20px",
   fontSize: 14,
   fontFamily: "inherit",
+  cursor: "pointer",
+};
+
+const linkButton: React.CSSProperties = {
+  background: "transparent",
+  color: COLORS.sub,
+  border: "none",
+  padding: "4px 8px",
+  fontSize: 12,
+  fontFamily: "inherit",
+  textDecoration: "underline",
   cursor: "pointer",
 };
