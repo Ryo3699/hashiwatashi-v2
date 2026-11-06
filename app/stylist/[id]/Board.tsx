@@ -1,14 +1,25 @@
 "use client";
 // 美容師のスマホ画面。隠れた悩みと、3種類の「なぜ」のヒント。ヒントごとに、もとのお客様の答えを原文で小さく添える。
+// カルテ：上に前回のメモ、ready の時は下に「カルテに残す」（美容師が書く。AI は書かない）。
 import { useCallback, useEffect, useState } from "react";
-import { HINT_KINDS, HINT_KIND_LABEL, type Summary, type Turn, type Via } from "../../../lib/types";
+import {
+  HINT_KINDS,
+  HINT_KIND_LABEL,
+  KARTE_MAX_LEN,
+  type KarteEntry,
+  type KarteView,
+  type Summary,
+  type Turn,
+  type Via,
+} from "../../../lib/types";
 import { COLORS, RADIUS } from "../../theme";
 
-type View =
+type View = { karte: KarteView } & (
   | { status: "none" }
   | { status: "interviewing"; turns: Turn[]; answered: number }
   | { status: "finished"; turns: Turn[]; answered: number }
-  | { status: "ready"; turns: Turn[]; answered: number; summary: Summary; removedCount: number; failed: boolean };
+  | { status: "ready"; turns: Turn[]; answered: number; summary: Summary; removedCount: number; failed: boolean }
+);
 
 export default function Board({ customerId, name }: { customerId: string; name: string }) {
   const [view, setView] = useState<View | null>(null);
@@ -84,6 +95,8 @@ export default function Board({ customerId, name }: { customerId: string; name: 
         {error && <Note tone="warn">{error}</Note>}
         {!view && !error && <Note>読み込み中…</Note>}
 
+        {view?.karte.previous && <PreviousKarte entry={view.karte.previous} />}
+
         {view?.status === "none" && (
           <Note>
             まだお客様の答えがありません。
@@ -115,7 +128,15 @@ export default function Board({ customerId, name }: { customerId: string; name: 
             <Note>{working ? "まとめを作っています…（少し時間がかかります）" : "まとめを準備しています…"}</Note>
           ))}
 
-        {view?.status === "ready" && <Ready view={view} onRetry={() => void make()} working={working} />}
+        {view?.status === "ready" && (
+          <Ready
+            view={view}
+            customerId={customerId}
+            onRetry={() => void make()}
+            working={working}
+            onKarte={(karte) => setView({ ...view, karte })}
+          />
+        )}
       </div>
     </main>
   );
@@ -123,12 +144,16 @@ export default function Board({ customerId, name }: { customerId: string; name: 
 
 function Ready({
   view,
+  customerId,
   onRetry,
   working,
+  onKarte,
 }: {
   view: Extract<View, { status: "ready" }>;
+  customerId: string;
   onRetry: () => void;
   working: boolean;
+  onKarte: (karte: KarteView) => void;
 }) {
   const { summary, turns } = view;
   const keepIndexes = validIndexes(summary.keep?.from_answers ?? [], turns.length);
@@ -187,6 +212,14 @@ function Ready({
         </section>
       )}
 
+      <KarteForm
+        customerId={customerId}
+        turns={turns}
+        keepIndexes={view.failed ? [] : keepIndexes}
+        current={view.karte.current}
+        onSaved={onKarte}
+      />
+
       <details style={{ margin: "4px 4px 0" }}>
         <summary style={{ fontSize: 13, color: COLORS.sub, cursor: "pointer" }}>お客様の答え（全部・原文）</summary>
         <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
@@ -202,6 +235,173 @@ function Ready({
         </div>
       </details>
     </>
+  );
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const fmtMD = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const fmtMDHM = (iso: string) => {
+  const d = new Date(iso);
+  return `${fmtMD(iso)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+
+/** 前回のカルテ（AI の文ではない＝お客様の言葉は原文、あとは美容師が書いたメモ） */
+function PreviousKarte({ entry }: { entry: KarteEntry }) {
+  return (
+    <Card title={`前回のカルテ（美容師のメモ・${fmtMD(entry.savedAt)}）`}>
+      <div style={{ display: "grid", gap: 14 }}>
+        {entry.wish && (
+          <KarteItem label="前回の要望（お客様の言葉）">
+            <Quote>{entry.wish}</Quote>
+          </KarteItem>
+        )}
+        {entry.keep.length > 0 && (
+          <KarteItem label="残したい所・避けたいこと（お客様の言葉）">
+            <div style={{ display: "grid", gap: 4 }}>
+              {entry.keep.map((k, i) => (
+                <Quote key={i}>{k}</Quote>
+              ))}
+            </div>
+          </KarteItem>
+        )}
+        {entry.did && (
+          <KarteItem label="やったこと（美容師）">
+            <p style={bodyText}>{entry.did}</p>
+          </KarteItem>
+        )}
+        {entry.next && (
+          <KarteItem label="次に確かめること（美容師）">
+            <p style={bodyText}>{entry.next}</p>
+          </KarteItem>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function KarteItem({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Quote({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 13,
+        lineHeight: 1.7,
+        color: COLORS.sub,
+        borderLeft: `3px solid ${COLORS.line}`,
+        paddingLeft: 10,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}
+    >
+      「{children}」
+    </div>
+  );
+}
+
+/** 施術の後に、美容師が1〜3行で書く。お客様の言葉は自動で写す（AI は使わない） */
+function KarteForm({
+  customerId,
+  turns,
+  keepIndexes,
+  current,
+  onSaved,
+}: {
+  customerId: string;
+  turns: Turn[];
+  keepIndexes: number[];
+  current: KarteEntry | null;
+  onSaved: (karte: KarteView) => void;
+}) {
+  const [did, setDid] = useState(current?.did ?? "");
+  const [next, setNext] = useState(current?.next ?? "");
+  const [savedAt, setSavedAt] = useState<string | null>(current?.savedAt ?? null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const empty = !did.trim() && !next.trim();
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/karte", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId, did, next }),
+      });
+      if (!res.ok) throw new Error();
+      const body = (await res.json()) as { karte: KarteView };
+      setSavedAt(body.karte.current?.savedAt ?? new Date().toISOString());
+      onSaved(body.karte);
+    } catch {
+      setErr("カルテを残せませんでした。もう一度お試しください。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card title="カルテに残す（施術の後に・美容師が書く）">
+      <p style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.7, color: COLORS.sub }}>
+        お客様の言葉は自動で写します（AI は書きません）。
+      </p>
+      {turns.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <Sources turns={turns} indexes={[0, ...keepIndexes.filter((n) => n !== 0)]} />
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 14 }}>
+        <KarteField label="今日やったこと" value={did} onChange={setDid} />
+        <KarteField label="次に確かめること" value={next} onChange={setNext} />
+      </div>
+      {err && <p style={{ margin: "10px 0 0", fontSize: 13, color: COLORS.warn }}>{err}</p>}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+        <button type="button" onClick={() => void save()} disabled={saving || empty} style={{ ...primaryButton, opacity: saving || empty ? 0.5 : 1 }}>
+          {saving ? "残しています…" : "カルテに残す"}
+        </button>
+        {savedAt && <span style={{ fontSize: 13, color: COLORS.accent }}>残しました（{fmtMDHM(savedAt)}）</span>}
+      </div>
+    </Card>
+  );
+}
+
+function KarteField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label style={{ display: "block" }}>
+      <span style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: COLORS.text, marginBottom: 4 }}>
+        <span>{label}</span>
+        <span style={{ color: COLORS.sub, fontSize: 12 }}>残り{KARTE_MAX_LEN - value.length}字</span>
+      </span>
+      <textarea
+        value={value}
+        maxLength={KARTE_MAX_LEN}
+        rows={3}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          border: `1px solid ${COLORS.line}`,
+          borderRadius: RADIUS,
+          padding: "10px 14px",
+          fontSize: 15,
+          lineHeight: 1.7,
+          fontFamily: "inherit",
+          color: COLORS.text,
+          background: COLORS.card,
+          resize: "vertical",
+        }}
+      />
+    </label>
   );
 }
 
@@ -277,6 +477,17 @@ function Note({ children, tone }: { children: React.ReactNode; tone?: "warn" }) 
 }
 
 const bodyText: React.CSSProperties = { margin: 0, fontSize: 15, lineHeight: 1.9, color: COLORS.text };
+const primaryButton: React.CSSProperties = {
+  background: COLORS.accent,
+  color: "#fff",
+  border: "none",
+  borderRadius: 999,
+  padding: "10px 22px",
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: "inherit",
+  cursor: "pointer",
+};
 const linkStyle: React.CSSProperties = { color: COLORS.accent };
 const ghostButton: React.CSSProperties = {
   marginTop: 8,
