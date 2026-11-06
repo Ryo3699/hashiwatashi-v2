@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ClaudeFatalError, ClaudeReplyError, createRealClient, FakeClaude, isFatalClaudeError, type JsonRequest, type MessagesApi } from "../lib/claude";
 import { getApiKey } from "../lib/config";
 
@@ -87,12 +87,11 @@ describe("createRealClient（SDK は偽物を差し込む・本物は呼ばな�
   it("空・JSONでない返事も ClaudeReplyError。鍵が無いのは ClaudeFatalError（作り直しても直らない）", async () => {
     await expect(createRealClient(sdkReturning("")).json(req)).rejects.toBeInstanceOf(ClaudeReplyError);
     await expect(createRealClient(sdkReturning("はい")).json(req)).rejects.toBeInstanceOf(ClaudeReplyError);
-    const saved = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
     try {
       await expect(createRealClient().json(req)).rejects.toBeInstanceOf(ClaudeFatalError);
     } finally {
-      if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved;
+      vi.unstubAllEnvs();
     }
   });
 

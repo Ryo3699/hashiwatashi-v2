@@ -159,6 +159,9 @@ describe("checkQuestion：決めた言い方・原因の推測・施術の提案
     "短めにしてみませんか？",
     "一度ボブにするのもありですね。",
     "共感します。どのあたりが気になりますか？",
+    "それはくせ毛ですね、どのあたりが気になりますか？",
+    "広がりは乾かし方の影響ですね、ご自宅ではどう乾かしていますか？",
+    "それは大変ですね、朝はどのくらい時間がありますか？",
   ])("NG：%s", (t) => {
     const r = checkQuestion(t);
     expect(r.ok, t).toBe(false);
@@ -203,7 +206,8 @@ describe("checkFinish：お礼と「当日、美容師が確かめる」だけ",
     expect(checkFinish(t).ok, t).toBe(false);
   });
 
-  it("お礼と確かめるだけなら通る", () => {
+  it("お礼と確かめるだけなら通る（美容師でもスタイリストでも）", () => {
+    expect(checkFinish("ありがとうございます。当日、担当のスタイリストが確かめます。").ok).toBe(true);
     expect(checkFinish("ありがとうございます。当日、担当の美容師が確かめます。").ok).toBe(true);
   });
 });
@@ -249,6 +253,8 @@ describe("checkSummary：推測の言い方", () => {
     "髪型はショートボブ一択。似合う可能性が高いです。",
     "原因は自然乾燥です。毛先の重さの可能性もあります。",
     "必ず広がります。",
+    "ご希望に合うのは縮毛矯正です。広がりが減る可能性があります。",
+    "ご回答の通り、原因は自然乾燥です。乾かし方で変わるかもしれません。",
   ])("NG（決める・言い切る）：%s", (t) => {
     const r = hintOk(t);
     expect(r.length, t).toBeGreaterThan(0);
@@ -274,6 +280,8 @@ describe("checkSummary：推測の言い方", () => {
     };
     expect(w("頭皮の乾燥とフケが本当の悩みです。").length).toBeGreaterThan(0);
     expect(w("ほかの可能性はありません。").length).toBeGreaterThan(0);
+    expect(w("広がりの原因は自然乾燥です。").length).toBeGreaterThan(0);
+    expect(w("広がりの原因は自然乾燥である可能性があります。")).toEqual([]);
     expect(w("毛先は絶対に薄くしたくない、という気持ちが強いのかもしれません。")).toEqual([]);
   });
 });

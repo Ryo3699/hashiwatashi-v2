@@ -34,6 +34,9 @@ export const DECIDED_PHRASES: RegExp[] = [
   /による(もの)?(です|だ)/,
 ];
 
+/** 「〜ですね、」のように、読点でつないだ前置きの文（句点で切れていなくても別の文として数える） */
+const SOFT_BREAK = /(ですね|ますね|ですよね|ましたね|でしたね|よね|ですよ)[、，,]/;
+
 /** 「〜してください」のうち、問いとして使える言い方（「教えてください」など）。これ以外の「ください」は指示になる */
 const ASK_FOR_INFO = /(教え|聞かせ|話し|伝え|知らせ|答え|記入|選ん)[^。]*ください/;
 
@@ -62,6 +65,7 @@ export const ASSERTIVE_PHRASES: RegExp[] = [
   /(必ず|絶対)(?!.{0,12}(たくない|避けたい|したい|嫌|いや|ほしくない|ている|ています|ていて|ており))/,
   // 原因の言い切り。「〜である可能性」「〜だと考えられます」のように推測が続く時は止めない
   /(が|の)原因(です|だ|である|でしょう)(?!.*(可能性|かもしれ|考えられ|思われ|ようです|のでは))/,
+  /原因は.{0,20}(です|だ|である)(?!.*(可能性|かもしれ|考えられ|思われ|ようです|のでは))/,
   /(の|が)せい(です|だ|である)/,
   /ましょう|べき|ください/,
   /方が(いい|よい|良い|ベター)/,
@@ -96,8 +100,6 @@ export const RESTATE_PHRASES: RegExp[] = [
   /とのこと/,
   /と(答え|話し|言っ|おっしゃ|述べ|回答|伝え)/,
   /という(お話|ご回答|言葉|声|ご希望|ご要望|ご意見)/,
-  /(お|ご)(答え|回答)/,
-  /ご希望|ご要望/,
 ];
 
 /** 医療に関わる語（原因として書かない） */
@@ -199,7 +201,7 @@ export function checkQuestion(text: string): CheckResult {
   if (t && q === 1) {
     if (!/[？?]$/.test(t)) {
       reasons.push("問いは「？」で終わる1文だけにしてください");
-    } else if (/[。．！!\n]/.test(t.slice(0, -1))) {
+    } else if (/[。．！!\n]/.test(t.slice(0, -1)) || SOFT_BREAK.test(t.slice(0, -1))) {
       reasons.push("「？」の前に別の文があります（共感・見立て・提案の前置きを置かない。問い1文だけ）");
     }
   } else if (t && q === 0) {
@@ -219,7 +221,7 @@ export function checkFinish(text: string): CheckResult {
   if (t) {
     if (t.length > FINISH_MAX_CHARS) reasons.push(`終わりの文が長すぎます（${FINISH_MAX_CHARS}字まで）`);
     if (splitSentences(t).length > 3) reasons.push("終わりの文は3文までにしてください");
-    if (!/ありがとう/.test(t) || !/美容師/.test(t)) {
+    if (!/ありがとう/.test(t) || !/美容師|スタイリスト/.test(t)) {
       reasons.push("終わりの文は、お礼と「当日、担当の美容師が確かめます」の意味だけにしてください");
     }
     for (const w of hits(t, FINISH_EXTRA_PHRASES)) {
