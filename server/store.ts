@@ -1,0 +1,77 @@
+// サーバー側の保存。お客様ごとに data/runtime/<id>.json へ会話とまとめを残す（.gitignore 済み）。
+// 録画の練習で再起動しても残る／API ルートごとにモジュールが分かれても同じ物を見る、ためにファイルにしている。
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import customers from "../data/customers.json";
+import type { Summary, Turn } from "../lib/types";
+
+export type StoredResult = { summary: Summary; removedCount: number; failed: boolean };
+
+export type Session = {
+  customerId: string;
+  turns: Turn[];
+  /** いまお客様に出している問い（次の答えは、この問いへの答え） */
+  pending: string | null;
+  finished: boolean;
+  finishText: string | null;
+  result: StoredResult | null;
+  updatedAt: string;
+};
+
+export function findCustomer(id: unknown): { id: string; name: string } | null {
+  if (typeof id !== "string") return null;
+  return customers.find((c) => c.id === id) ?? null;
+}
+
+function runtimeDir(): string {
+  return process.env.HASHI_RUNTIME_DIR || path.join(process.cwd(), "data", "runtime");
+}
+
+function fileOf(id: string): string {
+  // id は customers.json にある物だけ通す（findCustomer 済み）。念のためここでも確かめる。
+  if (!findCustomer(id)) throw new Error("知らないお客様の番号です");
+  return path.join(runtimeDir(), `${id}.json`);
+}
+
+export function emptySession(customerId: string): Session {
+  return {
+    customerId,
+    turns: [],
+    pending: null,
+    finished: false,
+    finishText: null,
+    result: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function loadSession(id: string): Promise<Session | null> {
+  try {
+    const text = await fs.readFile(fileOf(id), "utf8");
+    return JSON.parse(text) as Session;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
+  }
+}
+
+export async function saveSession(s: Session): Promise<void> {
+  const file = fileOf(s.customerId);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify({ ...s, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+  await fs.rename(tmp, file);
+}
+
+// ---------- お客様ごとの順番待ち（連打・二重送信で会話が崩れないように） ----------
+const chains = new Map<string, Promise<unknown>>();
+
+export function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = chains.get(id) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  chains.set(
+    id,
+    next.catch(() => undefined),
+  );
+  return next;
+}
