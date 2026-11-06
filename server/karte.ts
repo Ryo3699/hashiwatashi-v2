@@ -14,17 +14,45 @@ function fileOf(id: string): string {
 }
 
 function normalizeEntry(e: KarteEntry): KarteEntry {
-  return { ...e, wish: e.wish ?? null, keep: Array.isArray(e.keep) ? e.keep : [] };
+  return {
+    ...e,
+    wish: e.wish ?? null,
+    keep: Array.isArray(e.keep) ? e.keep : [],
+    did: typeof e.did === "string" ? e.did : "",
+    next: typeof e.next === "string" ? e.next : "",
+  };
 }
 
+/** 1件として読める形か（手で直して壊れた時に、変な日付や空のカードを出さない） */
+function isEntryLike(e: unknown): e is KarteEntry {
+  if (!e || typeof e !== "object") return false;
+  const x = e as Record<string, unknown>;
+  return typeof x.visitId === "string" && typeof x.savedAt === "string";
+}
+
+/**
+ * カルテを読む。ファイルが無ければ空。壊れていたら（空・途中で切れた JSON・形が違う）ファイル名つきで投げる。
+ * 投げる＝保存（saveKarteEntry）が壊れたファイルを1件だけの中身で上書きしない。画面側は karteOf で受け止める。
+ */
 export async function loadKarte(id: string): Promise<KarteFile> {
+  let text: string;
   try {
-    const f = JSON.parse(await fs.readFile(fileOf(id), "utf8")) as KarteFile;
-    return { customerId: id, entries: (f.entries ?? []).map(normalizeEntry) };
+    text = await fs.readFile(fileOf(id), "utf8");
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return { customerId: id, entries: [] };
     throw e;
   }
+  let f: unknown;
+  try {
+    f = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${id}.karte.json が読めません（${e instanceof Error ? e.message : "JSON ではない"}）`);
+  }
+  const entries = f && typeof f === "object" ? (f as { entries?: unknown }).entries ?? [] : null;
+  if (!Array.isArray(entries) || !entries.every(isEntryLike)) {
+    throw new Error(`${id}.karte.json の形が正しくありません`);
+  }
+  return { customerId: id, entries: entries.map(normalizeEntry) };
 }
 
 /** 今の来店のカルテと、それ以外で一番新しいカルテ。session が無ければ current は null */

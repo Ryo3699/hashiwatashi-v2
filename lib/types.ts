@@ -77,3 +77,6 @@ export type KarteEntry = {
 
 /** 美容師の画面に渡す形：今の来店のカルテと、前回までで一番新しいカルテ */
 export type KarteView = { current: KarteEntry | null; previous: KarteEntry | null };
+
+/** カルテを残す時、画面が見ている来店（visitId）が今の来店と違う＝画面が古い（409 の印） */
+export const KARTE_VISIT_CHANGED = "visit_changed";

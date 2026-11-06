@@ -6,6 +6,7 @@ import {
   HINT_KINDS,
   HINT_KIND_LABEL,
   KARTE_MAX_LEN,
+  KARTE_VISIT_CHANGED,
   type KarteEntry,
   type KarteView,
   type Summary,
@@ -14,11 +15,20 @@ import {
 } from "../../../lib/types";
 import { COLORS, RADIUS } from "../../theme";
 
+// visitId＝この画面が見ている来店（カルテを残す時に送り返す）
 type View = { karte: KarteView } & (
   | { status: "none" }
-  | { status: "interviewing"; turns: Turn[]; answered: number }
-  | { status: "finished"; turns: Turn[]; answered: number }
-  | { status: "ready"; turns: Turn[]; answered: number; summary: Summary; removedCount: number; failed: boolean }
+  | { status: "interviewing"; visitId: string; turns: Turn[]; answered: number }
+  | { status: "finished"; visitId: string; turns: Turn[]; answered: number }
+  | {
+      status: "ready";
+      visitId: string;
+      turns: Turn[];
+      answered: number;
+      summary: Summary;
+      removedCount: number;
+      failed: boolean;
+    }
 );
 
 export default function Board({ customerId, name }: { customerId: string; name: string }) {
@@ -134,7 +144,9 @@ export default function Board({ customerId, name }: { customerId: string; name: 
             customerId={customerId}
             onRetry={() => void make()}
             working={working}
-            onKarte={(karte) => setView({ ...view, karte })}
+            // その時の最新の画面にカルテだけ重ねる（作り直しと重なっても、新しいまとめを古い物で戻さない）
+            onKarte={(karte) => setView((v) => (v ? { ...v, karte } : v))}
+            onReload={() => void load()}
           />
         )}
       </div>
@@ -148,12 +160,14 @@ function Ready({
   onRetry,
   working,
   onKarte,
+  onReload,
 }: {
   view: Extract<View, { status: "ready" }>;
   customerId: string;
   onRetry: () => void;
   working: boolean;
   onKarte: (karte: KarteView) => void;
+  onReload: () => void;
 }) {
   const { summary, turns } = view;
   const keepIndexes = validIndexes(summary.keep?.from_answers ?? [], turns.length);
@@ -212,12 +226,17 @@ function Ready({
         </section>
       )}
 
+      {/* key＝来店。読み込み直して別の来店になったら、書きかけの欄を前の来店から持ち越さない */}
       <KarteForm
+        key={view.visitId}
         customerId={customerId}
+        visitId={view.visitId}
         turns={turns}
         keepIndexes={view.failed ? [] : keepIndexes}
         current={view.karte.current}
+        working={working}
         onSaved={onKarte}
+        onReload={onReload}
       />
 
       <details style={{ margin: "4px 4px 0" }}>
@@ -249,7 +268,7 @@ const fmtMDHM = (iso: string) => {
 };
 
 /** 前回のカルテ（AI の文ではない＝お客様の言葉は原文、あとは美容師が書いたメモ） */
-function PreviousKarte({ entry }: { entry: KarteEntry }) {
+export function PreviousKarte({ entry }: { entry: KarteEntry }) {
   return (
     <Card title={`前回のカルテ（美容師のメモ・${fmtMD(entry.savedAt)}）`}>
       <div style={{ display: "grid", gap: 14 }}>
@@ -269,12 +288,12 @@ function PreviousKarte({ entry }: { entry: KarteEntry }) {
         )}
         {entry.did && (
           <KarteItem label="やったこと（美容師）">
-            <p style={bodyText}>{entry.did}</p>
+            <p style={memoText}>{entry.did}</p>
           </KarteItem>
         )}
         {entry.next && (
           <KarteItem label="次に確かめること（美容師）">
-            <p style={bodyText}>{entry.next}</p>
+            <p style={memoText}>{entry.next}</p>
           </KarteItem>
         )}
       </div>
@@ -312,22 +331,31 @@ function Quote({ children }: { children: React.ReactNode }) {
 /** 施術の後に、美容師が1〜3行で書く。お客様の言葉は自動で写す（AI は使わない） */
 function KarteForm({
   customerId,
+  visitId,
   turns,
   keepIndexes,
   current,
+  working,
   onSaved,
+  onReload,
 }: {
   customerId: string;
+  visitId: string;
   turns: Turn[];
   keepIndexes: number[];
   current: KarteEntry | null;
+  working: boolean;
   onSaved: (karte: KarteView) => void;
+  onReload: () => void;
 }) {
   const [did, setDid] = useState(current?.did ?? "");
   const [next, setNext] = useState(current?.next ?? "");
+  // 「残しました」は、残した後に欄を直していない時だけ出す
   const [savedAt, setSavedAt] = useState<string | null>(current?.savedAt ?? null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  // 画面を開いた後に、お客様が聞き取りを最初からやり直した（この画面の来店には、もう残せない）
+  const [stale, setStale] = useState(false);
   const empty = !did.trim() && !next.trim();
 
   async function save() {
@@ -337,9 +365,15 @@ function KarteForm({
       const res = await fetch("/api/karte", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, did, next }),
+        body: JSON.stringify({ customerId, visitId, did, next }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // サーバーが言う理由をそのまま出す（409 は、もう一度押しても通らない）。読めない時と 500 だけ「もう一度」
+        const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+        setStale(body?.code === KARTE_VISIT_CHANGED);
+        setErr(body?.error && res.status < 500 ? `${body.error}。` : "カルテを残せませんでした。もう一度お試しください。");
+        return;
+      }
       const body = (await res.json()) as { karte: KarteView };
       setSavedAt(body.karte.current?.savedAt ?? new Date().toISOString());
       onSaved(body.karte);
@@ -350,6 +384,7 @@ function KarteForm({
     }
   }
 
+  const disabled = saving || empty || working || stale;
   return (
     <Card title="カルテに残す（施術の後に・美容師が書く）">
       <p style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.7, color: COLORS.sub }}>
@@ -361,21 +396,40 @@ function KarteForm({
         </div>
       )}
       <div style={{ display: "grid", gap: 14 }}>
-        <KarteField label="今日やったこと" value={did} onChange={setDid} />
-        <KarteField label="次に確かめること" value={next} onChange={setNext} />
+        <KarteField
+          label="今日やったこと"
+          value={did}
+          onChange={(v) => {
+            setDid(v);
+            setSavedAt(null);
+          }}
+        />
+        <KarteField
+          label="次に確かめること"
+          value={next}
+          onChange={(v) => {
+            setNext(v);
+            setSavedAt(null);
+          }}
+        />
       </div>
-      {err && <p style={{ margin: "10px 0 0", fontSize: 13, color: COLORS.warn }}>{err}</p>}
+      {err && <p style={{ margin: "10px 0 0", fontSize: 13, lineHeight: 1.7, color: COLORS.warn }}>{err}</p>}
+      {stale && (
+        <button type="button" onClick={onReload} style={ghostButton}>
+          読み込み直す（書いた文は消えます）
+        </button>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-        <button type="button" onClick={() => void save()} disabled={saving || empty} style={{ ...primaryButton, opacity: saving || empty ? 0.5 : 1 }}>
+        <button type="button" onClick={() => void save()} disabled={disabled} style={{ ...primaryButton, opacity: disabled ? 0.5 : 1 }}>
           {saving ? "残しています…" : "カルテに残す"}
         </button>
-        {savedAt && <span style={{ fontSize: 13, color: COLORS.accent }}>残しました（{fmtMDHM(savedAt)}）</span>}
+        {savedAt && !err && <span style={{ fontSize: 13, color: COLORS.accent }}>残しました（{fmtMDHM(savedAt)}）</span>}
       </div>
     </Card>
   );
 }
 
-function KarteField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+export function KarteField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <label style={{ display: "block" }}>
       <span style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: COLORS.text, marginBottom: 4 }}>
@@ -393,7 +447,7 @@ function KarteField({ label, value, onChange }: { label: string; value: string; 
           border: `1px solid ${COLORS.line}`,
           borderRadius: RADIUS,
           padding: "10px 14px",
-          fontSize: 15,
+          fontSize: 16, // 16px 未満だと iPhone で入力時に画面が拡大される（お客様の画面と同じ）
           lineHeight: 1.7,
           fontFamily: "inherit",
           color: COLORS.text,
@@ -477,6 +531,8 @@ function Note({ children, tone }: { children: React.ReactNode; tone?: "warn" }) 
 }
 
 const bodyText: React.CSSProperties = { margin: 0, fontSize: 15, lineHeight: 1.9, color: COLORS.text };
+// 美容師が書いたメモ：改行をそのまま出す・長い英数字でも横にはみ出さない（AI の文の bodyText は変えない）
+const memoText: React.CSSProperties = { ...bodyText, whiteSpace: "pre-wrap", wordBreak: "break-word" };
 const primaryButton: React.CSSProperties = {
   background: COLORS.accent,
   color: "#fff",

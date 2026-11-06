@@ -2,8 +2,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { KARTE_MAX_LEN } from "../lib/types";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { KARTE_MAX_LEN, KARTE_VISIT_CHANGED } from "../lib/types";
 import { FAKE_FINISH_AT } from "../server/claude";
 import { copyFromSession } from "../server/karte";
 import { emptySession, loadSession, type Session } from "../server/store";
@@ -217,5 +217,97 @@ describe("写し（copyFromSession）", () => {
 
   it("答えが無ければ wish は null", () => {
     expect(copyFromSession(base({ turns: [] }))).toEqual({ wish: null, keep: [] });
+  });
+});
+
+// 11/7 のコード点検で見つかった所の直し。上の describe の続き（p2 はまとめができてカルテ1件・p3 は空の来店）
+describe("点検の直し（11/7）", () => {
+  it("壊れたカルテのファイルがあっても、まとめの画面（GET/POST /api/summary）は出る。残す POST は 500 で、壊れたファイルを上書きしない", async () => {
+    await runInterview("p3", "p3の");
+    await summaryPost(post({ customerId: "p3" }));
+    const file = path.join(dir, "p3.karte.json");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // 空・null・途中で切れた JSON・entries が配列でない・中身が1件の形でない
+    const broken = ["", "null", "{", '{"entries":{}}', '{"entries":[null]}', '{"entries":[{"visitId":1}]}'];
+    try {
+      for (const text of broken) {
+        writeFileSync(file, text);
+        const got = await summaryGet(new Request("http://x/api/summary?customerId=p3"));
+        expect(got.status).toBe(200);
+        const v = await got.json();
+        expect(v.status).toBe("ready");
+        expect(v.summary.hints.length).toBeGreaterThan(0);
+        expect(v.karte).toEqual({ current: null, previous: null });
+
+        const made = await summaryPost(post({ customerId: "p3" }));
+        expect(made.status).toBe(200);
+        expect((await made.json()).karte).toEqual({ current: null, previous: null });
+
+        expect((await karte({ customerId: "p3", did: "カット", next: "" })).status).toBe(500);
+        expect(readFileSync(file, "utf8")).toBe(text);
+      }
+      // ログにはファイル名が出る（会話のファイル p3.json と取り違えない）
+      expect(warn).toHaveBeenCalledTimes(broken.length * 2);
+      for (const call of warn.mock.calls) expect(String(call[1])).toContain("p3.karte.json");
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+      rmSync(file, { force: true });
+    }
+  });
+
+  it("画面が見ている来店（visitId）が今の来店と違えば 409（画面が古い）。前の来店のメモは新しい来店に混ざらない", async () => {
+    const v1 = await getSummary("p2");
+    expect(v1.status).toBe("ready");
+    expect(v1.visitId).toBe(((await loadSession("p2")) as Session).visitId);
+    // 同じ来店なら、visitId を付けて残せる（上書き）
+    const same = await karte({ customerId: "p2", visitId: v1.visitId, did: "カット（直し）", next: "" });
+    expect(same.status).toBe(200);
+    expect((await same.json()).karte.current.did).toBe("カット（直し）");
+
+    // お客様が「最初から」→ 開いたままの古い画面から残す（聞き取り中）＝409・画面が古い
+    await interviewPost(post({ customerId: "p2", action: "start" }));
+    const stale1 = await karte({ customerId: "p2", visitId: v1.visitId, did: "前の来店のメモ", next: "" });
+    expect(stale1.status).toBe(409);
+    const body1 = await stale1.json();
+    expect(body1.code).toBe(KARTE_VISIT_CHANGED);
+    expect(body1.error).toContain("読み込み直して");
+    // visitId を付けない形は、これまでどおり（聞き取り中＝409）
+    const old = await karte({ customerId: "p2", did: "前の来店のメモ", next: "" });
+    expect(old.status).toBe(409);
+    expect((await old.json()).error).toBe("聞き取りがまだ終わっていません");
+
+    // 新しい来店の聞き取りとまとめが終わった後でも、古い画面からは残せない（前は新しい来店の名前で混ざって残っていた）
+    await runInterview("p2", "p2二回目");
+    await summaryPost(post({ customerId: "p2" }));
+    const stale2 = await karte({ customerId: "p2", visitId: v1.visitId, did: "前の来店のメモ", next: "" });
+    expect(stale2.status).toBe(409);
+    expect((await stale2.json()).code).toBe(KARTE_VISIT_CHANGED);
+    const saved = JSON.parse(readFileSync(path.join(dir, "p2.karte.json"), "utf8"));
+    expect(saved.entries).toHaveLength(1);
+    expect(saved.entries[0].did).toBe("カット（直し）");
+
+    // 読み込み直した画面（新しい visitId）からは残せる。前回＝前の来店
+    const v2 = await getSummary("p2");
+    expect(v2.visitId).not.toBe(v1.visitId);
+    const ok = await (await karte({ customerId: "p2", visitId: v2.visitId, did: "カラー", next: "" })).json();
+    expect(ok.karte.current.wish).toBe("p2二回目1");
+    expect(ok.karte.previous.visitId).toBe(v1.visitId);
+    expect(ok.karte.previous.did).toBe("カット（直し）");
+  });
+
+  it("visitId が文字でなければ 400", async () => {
+    expect((await karte({ customerId: "p2", visitId: 123, did: "a", next: "" })).status).toBe(400);
+    expect((await karte({ customerId: "p2", visitId: null, did: "a", next: "" })).status).toBe(400);
+  });
+
+  it("書いた文の途中の改行は残る（前後の空白だけ落とす）", async () => {
+    const v = await getSummary("p2");
+    const res = await (
+      await karte({ customerId: "p2", visitId: v.visitId, did: "  カット：顔まわり5cm\nカラー：8トーン\n", next: "前髪は\n眉上" })
+    ).json();
+    expect(res.karte.current.did).toBe("カット：顔まわり5cm\nカラー：8トーン");
+    expect(res.karte.current.next).toBe("前髪は\n眉上");
   });
 });

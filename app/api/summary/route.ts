@@ -14,14 +14,23 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-/** カルテ（美容師のメモ）。状態に関係なく、今の来店のと前回のを付ける */
+/**
+ * カルテ（美容師のメモ）。状態に関係なく、今の来店のと前回のを付ける。
+ * カルテのファイルが壊れていても、まとめの画面は出す（カルテだけ出さない。ファイル名をログに残す）
+ */
 async function karteOf(customerId: string, s: Session | null): Promise<KarteView> {
-  return karteView((await loadKarte(customerId)).entries, s);
+  try {
+    return karteView((await loadKarte(customerId)).entries, s);
+  } catch (e) {
+    console.warn("[api/summary] カルテを出さずに続けます:", e instanceof Error ? e.message : `${customerId}.karte.json`);
+    return { current: null, previous: null };
+  }
 }
 
 function view(s: Session | null, karte: KarteView) {
   if (!s || (s.turns.length === 0 && !s.finished)) return { status: "none" as const, karte };
-  const base = { turns: s.turns, answered: s.turns.length, karte };
+  // visitId＝この画面が見ている来店。カルテを残す時に送り返す（画面が古いまま別の来店に残さないように）
+  const base = { visitId: s.visitId, turns: s.turns, answered: s.turns.length, karte };
   if (!s.finished) return { status: "interviewing" as const, ...base };
   if (!s.result) return { status: "finished" as const, ...base };
   return {
