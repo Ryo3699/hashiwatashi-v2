@@ -65,6 +65,6 @@
 - 【Ryo 11/7】型.md の言葉はアプリに入れず、動画の冒頭で Ryo が自分の口で話す。わたげ・2回目の来店の鍵・3列の画面は入れない
 
 ## 作り方（Ryo が決めることではない・参考）【Claude案】
-- このフォルダ `~/projects/hashiwatashi-v2`。git はローカルだけ（GitHub には出さない）
+- このフォルダ `~/projects/hashiwatashi-v2`。GitHub は非公開で作成（2026-11-07・Ryo「うん、非公開で作って」）。公開は Ryo の決裁
 - 鍵は `~/.config/env/global.env` から読む。リポには書かない
 - 実装は agy の Sonnet に頼む（1フォルダで閉じて、テストで合否が出る作り）。Claude は確かめと直しの指示
