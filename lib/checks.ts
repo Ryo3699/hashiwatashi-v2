@@ -238,6 +238,16 @@ export const SUGGESTION_MAX_CHARS = 20;
 /** AI の候補の最大数（決まった候補は別に付く） */
 export const SUGGESTION_MAX_COUNT = 3;
 
+/**
+ * 候補のボタンに入れない語：施術の名前（終わりの文の施術の語と同じ）と、原因の推測に使う名詞。
+ * 問いの中の言葉でも、ワンタップの答えとして出すと AI が先導することになるので、候補からだけ黙って外す（問いは止めない）。
+ * 「やすく」（乾きやすく 等）に当たらないよう、「すく」は直前が「や」でない時だけ。
+ */
+export const SUGGESTION_BLOCK_PHRASES: RegExp[] = [
+  FINISH_EXTRA_PHRASES[1],
+  /ダメージ|傷み|による|せい|原因|レイヤー|(?<!や)すく/,
+];
+
 /** 比べる前に、前後の空白と「」『』だけ外す */
 const SUGGESTION_EDGE = /^[\s「」『』]+|[\s「」『』]+$/g;
 /** 候補の中に入れない記号（文や問いを丸ごと入れた物を落とす） */
@@ -254,6 +264,7 @@ export function readSuggestions(raw: unknown): string[] {
  *  - 空でない・20文字以内（前後の空白と「」『』を外してから）
  *  - 問いの文の中に、そのまま含まれる
  *  - 決めた言い方（DECIDED_PHRASES）に当たらない
+ *  - 施術の名前・原因の推測の名詞（SUGGESTION_BLOCK_PHRASES）に当たらない
  *  - 先に残した物と同じ・含み合いにならない／多くて3つ
  * 返すのは外したあとの文。
  */
@@ -267,6 +278,7 @@ export function cleanSuggestions(question: string, suggestions: unknown): string
     if (!s || s.length > SUGGESTION_MAX_CHARS || SUGGESTION_MARKS.test(s)) continue;
     if (!q.includes(s)) continue;
     if (hits(s, DECIDED_PHRASES).length > 0) continue;
+    if (hits(s, SUGGESTION_BLOCK_PHRASES).length > 0) continue;
     if (kept.some((k) => k.includes(s) || s.includes(k))) continue;
     kept.push(s);
     if (kept.length >= SUGGESTION_MAX_COUNT) break;

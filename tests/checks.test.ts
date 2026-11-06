@@ -203,6 +203,21 @@ describe("cleanSuggestions：答えの候補の検査", () => {
     // 問いの文に入っていても、決めた言い方なら落ちる
     expect(cleanSuggestions("乾かし方のせいですか、朝ですか？", ["乾かし方のせいです", "朝"])).toEqual(["朝"]);
   });
+  it("施術の名前の候補は落とす（問いの文に入っていても）", () => {
+    expect(cleanSuggestions("縮毛矯正とトリートメントの、どちらを考えていますか？", ["縮毛矯正", "トリートメント"])).toEqual([]);
+    expect(cleanSuggestions("量を減らすカットと、朝の扱いの、どちらが気になりますか？", ["量を減らすカット", "朝の扱い"])).toEqual(["朝の扱い"]);
+    expect(cleanSuggestions("カラーの後と、普段の、どちらですか？", ["カラーの後", "普段"])).toEqual(["普段"]);
+  });
+  it("原因の推測の名詞を含む候補は落とす", () => {
+    expect(cleanSuggestions("ダメージによる広がりと、朝の広がりの、どちらが近いですか？", ["ダメージによる広がり", "朝の広がり"])).toEqual(["朝の広がり"]);
+    expect(cleanSuggestions("傷みと、乾かした後の、どちらが気になりますか？", ["傷み", "乾かした後"])).toEqual(["乾かした後"]);
+    expect(cleanSuggestions("乾燥のせいか、朝か、どちらですか？", ["乾燥のせい", "朝"])).toEqual(["朝"]);
+    expect(cleanSuggestions("原因が思い当たるか、朝か、どちらですか？", ["原因", "朝"])).toEqual(["朝"]);
+  });
+  it("毛量・レイヤー・すく、などの施術の言葉の候補は落とす（「乾きやすく」は残る）", () => {
+    expect(cleanSuggestions("レイヤーと、すくのと、朝の、どれが気になりますか？", ["レイヤー", "すく", "朝"])).toEqual(["朝"]);
+    expect(cleanSuggestions("乾きやすくなるのと、朝の、どちらですか？", ["乾きやすく", "朝"])).toEqual(["乾きやすく", "朝"]);
+  });
   it("同じ物・含み合う物は先に残した方だけ", () => {
     expect(cleanSuggestions(q, ["朝", "朝", "乾かした後", "乾かした"])).toEqual(["朝", "乾かした後"]);
     expect(cleanSuggestions("朝のスタイリングと朝ですか？", ["朝", "朝のスタイリング"])).toEqual(["朝"]);
