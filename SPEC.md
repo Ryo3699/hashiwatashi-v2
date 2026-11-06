@@ -1,6 +1,6 @@
 # hashiwatashi v2 仕様書（1枚）
 
-> 2026-11-06 版1（**Ryo 未承認**）。元＝[INTERVIEW.md](INTERVIEW.md)（Ryo の答えの原文）。
+> 2026-11-06 版1。**Ryo 承認済み（2026-11-06 23時台・Ryo「いいよ、それで作って」）**＝【Claude案】も直しなしで承認。元＝[INTERVIEW.md](INTERVIEW.md)（Ryo の答えの原文）。
 > 【Ryo】＝Ryo の言葉そのまま。【Claude案】＝Claude の提案（残す・消す・直すを Ryo が決める）。
 
 ## 一言で【Claudeのまとめ】
