@@ -37,12 +37,17 @@
    - **お客様の答え（全部・原文）**
    - どこにも、**もとになったお客様の答えを原文で添える**。候補のボタンから来た答えには「（候補から選んだ）」「（候補に書き足した）」と印が付く
 4. **本番のカウンセリングは人**：美容師がヒントを自分の問いと手で確かめる
+5. **施術の後・カルテ（美容師のメモ）**：美容師が「今日やったこと」「次に確かめること」を1〜3行で残す（各200字まで）。お客様の要望（答え1）と残したい所・避けたいことは、**お客様の答えの原文のまま自動で写す**。**AI は書かない・何も決めない**
+   - 次の来店では、美容師の画面のいちばん上に「前回のカルテ（美容師のメモ・日付）」が出る。お客様の言葉と美容師の言葉は分けて見せる
+   - 聞き取りを最初からやり直しても、カルテは消えない（会話とは別のファイル）
+   - 美容師の画面を開いた後にお客様が最初からやり直していたら、カルテは残さず「画面を読み込み直してください」と出す（前の来店のメモを、次の来店に混ぜない）
 
 ### 決めたこと（作り手の言葉）
 - 「けっていしてほしくないかな」「決めない範囲は全部、あくまで推測参考程度に」
 - 「あくまでカウンセリングの補助であって欲しい」
 - 美容師に渡したいもの：「髪が広がるのはなぜなのか、自宅でのケアの仕方なのか髪質とそのヘアスタイルが合っていないのではないか、そういったことがヒントとしてわかれば施術しやすい」
 - 11/7、1つ目の版の良い所を取り入れた：「v2で行きたいけどv1のいいところも取り入れたらどうかな？」「返信予想はあると便利」「うん、3つで進めて」。取り入れたのは3つ ——「残したい所・避けたいこと」を聞く／答えの候補ボタン／作り手の型の言葉（「すいては手段。何が重いのかを聞く」「いちばん最初に触るところがいちばん気になるところ」）。3つ目はアプリには入れず、デモ動画で作り手が自分の口で話す
+- 11/7、カルテを足した：「カルテ機能いれたい、作って」。AI は書かず、美容師が書いた言葉とお客様の原文だけを残す形にした（作り手の「けっていしてほしくないかな」に合わせて）
 
 ## 作り方（仕様書から）
 作り手が講義の型（「作る前に、土台を固める」）で、Claude に1問ずつインタビューしてもらい（11問・答えは [INTERVIEW.md](INTERVIEW.md) に原文のまま）、その原文だけから仕様書1枚（[SPEC.md](SPEC.md)）を書いた。仕様書では作り手の言葉【Ryo】と Claude の提案【Claude案】を分けてあり、作り手が承認してから作った。
@@ -79,8 +84,8 @@
 
 - 前の作り（11/6・「残したい所・避けたいこと」を聞く前）では、試し6回中5回、避けたいことが出てこなかった（[docs/trial_results_2026-11-06.md](docs/trial_results_2026-11-06.md)）
 - このほか、画面から p1（ミサキさん）を1回通して録画した（上の画像）。5問・ヒント3つ・外した数0。3問目と4問目は候補のボタンを押して書き足した答えで、美容師の画面では「（候補に書き足した）」と出る。録画では、お客様役の AI に画面の候補ボタンを知らせ、当てはまる時に使うよう頼んだ（そのため4問目の「量」は、お客様役の事実には無い言葉。試し6回ではこの頼みはしていない）
-- 結果のファイル `runs/` はリポに入れていない
-- テスト：195本（`npm test`・偽物の Claude だけ・ネット不要）。型チェック（`npm run typecheck`）も通る
+- 試しの結果のファイル `runs/` はリポに入れていない（下の「素の Claude との比べ」の結果だけは `docs/baseline/` に入れた）
+- テスト：216本（`npm test`・偽物の Claude だけ・ネット不要・カルテの21本を含む）。型チェック（`npm run typecheck`）も通る
 
 ## 素の Claude との比べ（各1回）
 同じモデル・同じお客様役（架空の3人）で、指示文が一言だけの「ふつうの AI チャット」に通した。
@@ -92,6 +97,7 @@
   3. 素の Claude は p1 で「すいてほしい」を「（量を減らしたい）」と書いた＝v2 が防ぎたい言葉のずれを、そのまま美容師に渡している
 - 家でのケアは素の Claude でも3人中2人で聞き出せた。避けたいことが出たのは3人中1人（お客様役が自分から言った）
 - **読み方の注意**：物差しは v2 の検査（「？」の数・決めた言い方）＝v2 の決まりで相手を測っている。まとめが美容師の役に立つかは測っていない。回数も各1回で少ない
+- 回した物と結果：スクリプトは [scripts/baseline.ts](scripts/baseline.ts)、表は [docs/baseline/RESULT.md](docs/baseline/RESULT.md)、生の結果は `docs/baseline/runs_plain/`（p1〜p3・11/7 の各1回）
 
 ## 似た物との違い
 来店前の AI カウンセリングは、すでにある。形は大きく2つ ——美容師の AI が相談に答えて、メニューや担当を提案して予約へつなぐ形と、お店が作ったシートにお客様が答える形。
@@ -110,6 +116,7 @@ hashiwatashi は **AI に答えさせず、決めさせない**。聞いて、�
 
 ## これから
 - **本物の美容師とお客様で使う**：作り手が決めた「成功」（カウンセリングが短くなる・お客様が伝わったと感じる）を測る
+- **カルテを次の聞き取りに生かすか**（今回は入れていない）：前回のカルテを AI に渡すと、AI が「前回はこうだったから」と決める側に寄る心配がある。入れるなら、美容師が画面で確かめる材料に留める
 - **カメラ（作り手の案・今回は入れていない）**：「本当はカメラでその人の正面を撮影して似合う髪型を導き出すのも入れたかったなぁ」。入れるなら条件がある
   - AI が似合う髪型を決めるのではなく、**美容師が確かめる材料の1つ**として出す（「けっていしてほしくないかな」とぶつからないように）
   - 顔写真は、お客様の同意と保存の決まりを先に作る
@@ -119,11 +126,11 @@ hashiwatashi は **AI に答えさせず、決めさせない**。聞いて、�
 npm install
 ANTHROPIC_API_KEY=... npm run dev   # http://localhost:3400
 HASHI_FAKE=1 npm run dev            # 鍵なし・偽物の Claude
-npm test                            # テスト195本（偽物の Claude だけ・ネット不要）
+npm test                            # テスト216本（偽物の Claude だけ・ネット不要）
 ANTHROPIC_API_KEY=... npm run trial # 架空のお客様3人を本物で通す（npm run trial -- --fake で偽物）
 ```
 - トップ（`/`）から、お客様の画面（`/customer/p1`）と美容師の画面（`/stylist/p1`）を開ける
-- 会話は `data/runtime/<id>.json` に残る（git の外）。やり直す時は、お客様の画面の「最初からやり直す」
+- 会話は `data/runtime/<id>.json`、カルテは `data/runtime/<id>.karte.json` に残る（どちらも git の外）。やり直す時は、お客様の画面の「最初からやり直す」（カルテは消えない＝次の来店として「前回のカルテ」に出る）
 
 ## ファイル
 | 場所 | 中身 |
@@ -134,14 +141,16 @@ ANTHROPIC_API_KEY=... npm run trial # 架空のお客様3人を本物で通す�
 | `lib/checks.ts` | 決めた言い方・推測の言い方・答えの番号・候補の検査（語のリストはここだけ） |
 | `lib/claude.ts` / `server/claude.ts` | Claude を呼ぶ口（本物／偽物） |
 | `app/customer/[id]` / `app/stylist/[id]` | お客様の画面／美容師の画面 |
-| `app/api/interview` / `app/api/summary` | 画面から呼ぶ API |
+| `app/api/interview` / `app/api/summary` / `app/api/karte` | 画面から呼ぶ API |
+| `server/karte.ts` | カルテの保存（来店ごとに1件・AI は使わない） |
 | `scripts/trial.ts` | お客様役の AI と最後まで通す試し |
+| `scripts/baseline.ts` / `docs/baseline/` | 素の Claude との比べ（回した物／表 `RESULT.md` と生の結果 `runs_plain/`） |
 | `tests/` | テスト |
 
 ---
 
 ## English summary
-**hashiwatashi v2** — before a salon visit, an AI interviews the customer on her phone, one question at a time, and hands the stylist three things: the **hidden worry** behind words like "please thin it out", **what she wants to keep or avoid** (shown only as her own words — no AI text), and **"why" hints** in three kinds the stylist asked for (what may be causing it / home care / whether hair type and style fit). Everything is framed as a guess; every item carries the customer's own answers verbatim; a banner says "These are the AI's guesses. The stylist decides." The AI never decides anything — the counseling stays human.
+**hashiwatashi v2** — before a salon visit, an AI interviews the customer on her phone, one question at a time, and hands the stylist three things: the **hidden worry** behind words like "please thin it out", **what she wants to keep or avoid** (shown only as her own words — no AI text), and **"why" hints** in three kinds the stylist asked for (what may be causing it / home care / whether hair type and style fit). Everything is framed as a guess; every item carries the customer's own answers verbatim; a banner says "These are the AI's guesses. The stylist decides." The AI never decides anything — the counseling stays human. After the visit, the stylist leaves a short karte (client record): what was done today and what to check next time. The customer's own words (her request and what to keep or avoid) are copied in verbatim, the AI writes nothing, and on the next visit the stylist's screen opens with "last karte" at the top.
 
 Before finishing, the interview covers four angles once each: where/when/how it bothers her, home care, the current style, and what to keep or avoid (customers who ask to "thin" or "lighten" are asked what to keep). From the second question, answer chips appear: "nothing in particular", "I can't put it into words", plus only the choices the AI wrote inside the question itself. Code silently drops chips that aren't in the question, run over 20 characters, or contain decisive phrasing, treatment names or guessed causes. Tapping a chip only fills the input box; the stylist sees which answers came from a chip.
 
@@ -149,8 +158,8 @@ Built by a working hairdresser who doesn't write code. Claude interviewed the ha
 
 Claude usage: Sonnet 5.5 for the interview and Opus 5.5 for the stylist summary, both with JSON-schema structured output (`suggestions` for chips; `keep` holds only answer numbers). Code checks reject decisive phrasing, non-hedged hints, medical claims and citations to answers that don't exist; one regeneration with reasons, then a fixed fallback or the hint is dropped. Customer answers are wrapped in `<answer>` tags, marked `via="chip"` / `via="chip_edited"` so a tapped chip counts as weaker evidence.
 
-Results with real Claude on three fictional customers (6 runs on the current version): every run ended in 5 questions with 3 hedged hints and none dropped; the summary was never regenerated and 1 of 30 questions was. What the customer wanted to avoid reached the stylist's "keep / avoid" card in 6 of 6 runs (the earlier build missed it in 5 of 6). The AI offered choice chips in 3 of 6 runs. 195 tests pass.
+Results with real Claude on three fictional customers (6 runs on the current version): every run ended in 5 questions with 3 hedged hints and none dropped; the summary was never regenerated and 1 of 30 questions was. What the customer wanted to avoid reached the stylist's "keep / avoid" card in 6 of 6 runs (the earlier build missed it in 5 of 6). The AI offered choice chips in 3 of 6 runs. 216 tests pass (21 of them for the karte).
 
-Compared with plain Claude (same models, a one-line prompt, one run each): its summaries read well, but it asked 2–4 questions at once, put treatment suggestions in the summary, and rewrote "please thin it out" as "wants less volume". Note the yardstick is v2's own rules. Pre-visit AI counseling already exists; what hashiwatashi adds is that the AI neither answers nor decides — it asks, and hands the material to the stylist in front of the customer.
+Compared with plain Claude (same models, a one-line prompt, one run each): its summaries read well, but it asked 2–4 questions at once, put treatment suggestions in the summary, and rewrote "please thin it out" as "wants less volume". Note the yardstick is v2's own rules (script: `scripts/baseline.ts`; table and raw outputs: `docs/baseline/`). Pre-visit AI counseling already exists; what hashiwatashi adds is that the AI neither answers nor decides — it asks, and hands the material to the stylist in front of the customer.
 
 Limits: fictional customers only, few runs, no stylist has used it yet, checks are word lists, local prototype (JSON files, no login, Japanese only). Next: real stylists and customers; the maker's camera idea only as material for the stylist to check, with consent and storage rules first.
