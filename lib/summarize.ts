@@ -16,7 +16,7 @@ export type SummarizeResult = {
 
 /** まとめが作れなかった時に出す、隠れた悩みの代わりの文 */
 export const FALLBACK_WORRY_TEXT =
-  "AIのまとめを作れませんでした。お客様の答えを、そのままご確認ください。";
+  "隠れた悩みのまとめは出せませんでした。お客様の答えを、そのままご確認ください。";
 
 const SCHEMA = {
   type: "object",

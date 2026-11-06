@@ -97,6 +97,7 @@ export async function nextStep(turns: Turn[], claude: ClaudeClient): Promise<Int
 
   let feedback = "";
   let reasons: string[] = [];
+  let rejectedText = "";
   let lastAction: InterviewStep["action"] | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const content = feedback ? `${user}\n\n${feedback}` : user;
@@ -123,10 +124,12 @@ export async function nextStep(turns: Turn[], claude: ClaudeClient): Promise<Int
         };
       }
       reasons = res.reasons;
+      rejectedText = step.text;
     }
     feedback =
       "前回の返事は次の理由で使えませんでした。直して、もう一度 JSON で返してください。\n" +
-      reasons.map((r) => `- ${r}`).join("\n");
+      reasons.map((r) => `- ${r}`).join("\n") +
+      (rejectedText ? `\n使えなかった前回の文：${rejectedText.slice(0, 120)}` : "");
   }
 
   // 2回とも不合格 → 定型（終わろうとしていたなら定型の終わりの文）
