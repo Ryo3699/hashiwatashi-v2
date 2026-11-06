@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { checkFinish, checkQuestion, checkSummary, parseInterviewStep, parseSummary } from "../lib/checks";
+import {
+  checkFinish,
+  checkQuestion,
+  checkSummary,
+  cleanKeep,
+  cleanSuggestions,
+  parseInterviewStep,
+  parseSummary,
+  readSuggestions,
+} from "../lib/checks";
 import { FINISH_TEXT, FIRST_QUESTION } from "../lib/config";
 import { FALLBACK_QUESTIONS } from "../lib/interview";
 import type { Summary } from "../lib/types";
@@ -53,6 +62,7 @@ const base = (): Summary => ({
     { kind: "home_care", text: "自然乾燥が広がりにつながっている可能性があります。", from_answers: [2] },
     { kind: "hair_and_style", text: "髪質に対して今の長さが合っていないのではないか。", from_answers: [0, 1] },
   ],
+  keep: { from_answers: [2] },
 });
 
 describe("checkSummary", () => {
@@ -136,6 +146,77 @@ describe("形の確かめ", () => {
     expect(parseSummary({ hidden_worry: { text: "a", from_answers: [0] }, hints: [{ kind: "cause" }] })).toBeNull();
     expect(parseSummary(undefined)).toBeNull();
   });
+
+  it("parseSummary：keep が無い・形が違う時は空にする（まとめ全体は不合格にしない）", () => {
+    const { keep: _keep, ...noKeep } = base();
+    expect(parseSummary(noKeep)?.keep).toEqual({ from_answers: [] });
+    expect(parseSummary({ ...noKeep, keep: "x" })?.keep).toEqual({ from_answers: [] });
+    expect(parseSummary({ ...noKeep, keep: { from_answers: "x" } })?.keep).toEqual({ from_answers: [] });
+    expect(parseSummary({ ...noKeep, keep: { from_answers: [2, "a", 1.5, null] } })?.keep).toEqual({ from_answers: [2] });
+  });
+
+  it("readSuggestions：配列でなければ空・文字列以外は捨てる", () => {
+    expect(readSuggestions({ action: "ask", text: "a", suggestions: ["朝", 3, null, "夜"] })).toEqual(["朝", "夜"]);
+    expect(readSuggestions({ action: "ask", text: "a" })).toEqual([]);
+    expect(readSuggestions({ suggestions: "朝" })).toEqual([]);
+    expect(readSuggestions(null)).toEqual([]);
+  });
+});
+
+describe("cleanKeep：keep の番号の検査", () => {
+  it("実在する番号だけ残す（実在しない番号・負・小数・重なりは落とす）", () => {
+    expect(cleanKeep({ from_answers: [2, 9, -1, 1.5, 2, 0] }, 3)).toEqual({ from_answers: [0, 2] });
+  });
+  it("実在しない番号だけなら空になってよい", () => {
+    expect(cleanKeep({ from_answers: [7, 8] }, 3)).toEqual({ from_answers: [] });
+  });
+  it("keep が無い・形が違う時は空", () => {
+    expect(cleanKeep(undefined, 3)).toEqual({ from_answers: [] });
+    expect(cleanKeep({}, 3)).toEqual({ from_answers: [] });
+    expect(cleanKeep({ from_answers: "0" }, 3)).toEqual({ from_answers: [] });
+  });
+  it("keep の不備では、まとめの検査（checkSummary）は落ちない", () => {
+    const s = { ...base(), keep: { from_answers: [99] } };
+    expect(checkSummary(s, 3).ok).toBe(true);
+  });
+});
+
+describe("cleanSuggestions：答えの候補の検査", () => {
+  const q = "乾かした後と朝の、どちらが特に気になりますか？";
+
+  it("問いの中の言葉どおりの候補は残る", () => {
+    expect(cleanSuggestions(q, ["乾かした後", "朝"])).toEqual(["乾かした後", "朝"]);
+  });
+  it("前後の空白と「」『』は外してから比べる（返すのは外した後の文）", () => {
+    expect(cleanSuggestions(q, [" 「乾かした後」 ", "『朝』"])).toEqual(["乾かした後", "朝"]);
+  });
+  it("問いの文に無い候補は、黙って落とす", () => {
+    expect(cleanSuggestions(q, ["乾かした後", "夜"])).toEqual(["乾かした後"]);
+  });
+  it("空・20文字を超える物は落とす（20文字ちょうどは残る）", () => {
+    const long = "あ".repeat(20);
+    expect(cleanSuggestions(`${long}と${long}1ですか？`, ["", "  ", long, `${long}1`])).toEqual([long]);
+  });
+  it("決めた言い方・原因の推測・施術の提案は落とす", () => {
+    const qq = "広がるのは乾かし方のせいですか、それともカットをおすすめしますか、ボブにしましょうか？";
+    expect(cleanSuggestions(qq, ["乾かし方のせいです", "おすすめ", "カットをおすすめします", "ボブにしましょう"])).toEqual([]);
+    // 問いの文に入っていても、決めた言い方なら落ちる
+    expect(cleanSuggestions("乾かし方のせいですか、朝ですか？", ["乾かし方のせいです", "朝"])).toEqual(["朝"]);
+  });
+  it("同じ物・含み合う物は先に残した方だけ", () => {
+    expect(cleanSuggestions(q, ["朝", "朝", "乾かした後", "乾かした"])).toEqual(["朝", "乾かした後"]);
+    expect(cleanSuggestions("朝のスタイリングと朝ですか？", ["朝", "朝のスタイリング"])).toEqual(["朝"]);
+  });
+  it("4つ以上あっても、多くて3つ", () => {
+    const qq = "朝・昼・夜・夕方のどれですか？";
+    expect(cleanSuggestions(qq, ["朝", "昼", "夜", "夕方"])).toEqual(["朝", "昼", "夜"]);
+  });
+  it("文字列でない物・配列でない物・記号入りは落とす", () => {
+    expect(cleanSuggestions(q, ["朝", 1, null, { a: 1 }])).toEqual(["朝"]);
+    expect(cleanSuggestions(q, "朝")).toEqual([]);
+    expect(cleanSuggestions(q, undefined)).toEqual([]);
+    expect(cleanSuggestions(q, ["？", "気になりますか？"])).toEqual([]);
+  });
 });
 
 // ---------- 抜け道が戻らないための表（レビューで実際にすり抜けた文） ----------
@@ -216,6 +297,7 @@ describe("checkSummary：推測の言い方", () => {
   const withHint = (text: string, kind: Summary["hints"][number]["kind"] = "cause"): Summary => ({
     hidden_worry: base().hidden_worry,
     hints: [{ kind, text, from_answers: [1] }],
+    keep: { from_answers: [] },
   });
   const hintOk = (text: string) => checkSummary(withHint(text), 3).hints[0];
 

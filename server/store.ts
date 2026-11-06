@@ -12,6 +12,8 @@ export type Session = {
   turns: Turn[];
   /** いまお客様に出している問い（次の答えは、この問いへの答え） */
   pending: string | null;
+  /** いま出している問いの、答えの候補（決まった候補も含めた、画面に出す全部） */
+  pendingSuggestions: string[];
   finished: boolean;
   finishText: string | null;
   result: StoredResult | null;
@@ -38,6 +40,7 @@ export function emptySession(customerId: string): Session {
     customerId,
     turns: [],
     pending: null,
+    pendingSuggestions: [],
     finished: false,
     finishText: null,
     result: null,
@@ -45,10 +48,18 @@ export function emptySession(customerId: string): Session {
   };
 }
 
+/** 古い保存（pendingSuggestions・summary.keep・Turn.via が無い）を、今の形として読めるようにする */
+function normalizeSession(s: Session): Session {
+  const result = s.result && !s.result.summary.keep
+    ? { ...s.result, summary: { ...s.result.summary, keep: { from_answers: [] } } }
+    : s.result;
+  return { ...s, pendingSuggestions: s.pendingSuggestions ?? [], result };
+}
+
 export async function loadSession(id: string): Promise<Session | null> {
   try {
     const text = await fs.readFile(fileOf(id), "utf8");
-    return JSON.parse(text) as Session;
+    return normalizeSession(JSON.parse(text) as Session);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw e;

@@ -1,7 +1,13 @@
 // lib 全体で使う型と、小さな定数。
 
+/**
+ * 答えの印（サーバーが決める。画面からの申告は信じない）。
+ * chip＝候補のボタンの文そのまま／chip_edited＝候補の文で始まり、お客様が書き足した。印が無い＝自分の言葉。
+ */
+export type Via = "chip" | "chip_edited";
+
 /** 1往復＝AIの問い1つと、お客様の答え1つ。答えの番号（0始まり）は配列の添字と同じ。 */
-export type Turn = { question: string; answer: string };
+export type Turn = { question: string; answer: string; via?: Via };
 
 /** ヒントの種類（Ryo の3つ）：広がる等の原因／家でのケアの仕方／髪質と髪型が合っているか */
 export const HINT_KINDS = ["cause", "home_care", "hair_and_style"] as const;
@@ -27,9 +33,15 @@ export type HiddenWorry = {
   from_answers: number[];
 };
 
+/** 残したい所・避けたいこと。AI の文は持たず、お客様が言った答えの番号だけ（美容師の画面に原文で出す） */
+export type Keep = {
+  from_answers: number[];
+};
+
 export type Summary = {
   hidden_worry: HiddenWorry;
   hints: Hint[];
+  keep: Keep;
 };
 
 /** 検査に落ちて外したもの */

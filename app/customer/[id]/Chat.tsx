@@ -1,6 +1,7 @@
 "use client";
 // お客様のスマホ画面。AI が1問ずつ聞く。原因の推測・型・検査の話はここには出さない。写真ボタンは置かない。
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FIXED_SUGGESTIONS } from "../../../lib/config";
 import { COLORS, RADIUS } from "../../theme";
 
 type Msg = { role: "ai" | "me"; text: string };
@@ -9,8 +10,13 @@ type Phase = "starting" | "asking" | "sending" | "closed";
 type SavedTurn = { question: string; answer: string };
 type Saved =
   | { status: "none" }
-  | { status: "asking"; turns: SavedTurn[]; pending: string | null }
+  | { status: "asking"; turns: SavedTurn[]; pending: string | null; suggestions?: string[] }
   | { status: "finished"; turns: SavedTurn[]; finishText: string | null };
+
+/** サーバーの返事から候補だけ取り出す（無い・形が違う時は空） */
+function readSuggestions(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
   const res = await fetch(url, {
@@ -32,7 +38,10 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
   const [phase, setPhase] = useState<Phase>("starting");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
+  // いま出している問いの、答えの候補（問いを待っている時だけ画面に出す）
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 美容師のまとめは裏で作っておく（投げっぱなし。失敗しても美容師の画面が自分で作り直せる）
   const prepareSummary = useCallback(() => {
@@ -47,6 +56,7 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
       const r = await post("/api/interview", { customerId, action: "start" });
       if (!r.ok) throw new Error();
       setMsgs([{ role: "ai", text: String(r.data.text) }]);
+      setSuggestions(readSuggestions(r.data.suggestions));
       setPhase("asking");
     } catch {
       setError("うまく始められませんでした。もう一度お試しください。");
@@ -82,6 +92,7 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
     } else {
       restored.push({ role: "ai", text: String(saved.pending) });
       setMsgs(restored);
+      setSuggestions(readSuggestions(saved.suggestions));
       setPhase("asking");
     }
   }, [customerId, start, prepareSummary]);
@@ -98,7 +109,16 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
     if (!window.confirm("最初からやり直しますか？ これまでの答えは消えます。")) return;
     setDraft("");
     setMsgs([]);
+    setSuggestions([]);
     void start();
+  }
+
+  // 候補を押す：入力欄にその文が入り（今の入力は置き換え）、カーソルが入力欄に移る＝書き足してから「送る」
+  function pick(text: string) {
+    if (phase !== "asking") return;
+    inputRef.current?.focus(); // タップの中で同期的に（iPhone でキーボードが出るように）
+    setDraft(text);
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(text.length, text.length));
   }
 
   async function send() {
@@ -112,6 +132,7 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
       const r = await post("/api/interview", { customerId, answer });
       if (!r.ok) throw new Error();
       setMsgs((m) => [...m, { role: "ai", text: String(r.data.text) }]);
+      setSuggestions(readSuggestions(r.data.suggestions));
       if (r.data.action === "finish") {
         setPhase("closed");
         prepareSummary();
@@ -188,8 +209,23 @@ export default function Chat({ customerId, name }: { customerId: string; name: s
           }}
           style={{ padding: "12px 16px calc(14px + env(safe-area-inset-bottom))", borderTop: `1px solid ${COLORS.line}`, background: COLORS.card }}
         >
+          {phase === "asking" && suggestions.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }} aria-label="答えの候補">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => pick(s)}
+                  style={FIXED_SUGGESTIONS.includes(s) ? fixedChip : chip}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
             <textarea
+              ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={2}
@@ -275,6 +311,30 @@ const primaryButton: React.CSSProperties = {
   fontWeight: 500,
   textDecoration: "none",
   fontFamily: "inherit",
+};
+
+/** 答えの候補（AI の選択肢）：丸いボタン */
+const chip: React.CSSProperties = {
+  background: COLORS.accentSoft,
+  color: COLORS.accent,
+  border: `1px solid ${COLORS.accent}`,
+  borderRadius: 999,
+  padding: "8px 16px",
+  fontSize: 14,
+  fontFamily: "inherit",
+  cursor: "pointer",
+};
+
+/** 決まった候補（特にないです・うまく言えないです）：小さく・薄く */
+const fixedChip: React.CSSProperties = {
+  background: "transparent",
+  color: COLORS.sub,
+  border: `1px solid ${COLORS.line}`,
+  borderRadius: 999,
+  padding: "5px 12px",
+  fontSize: 12,
+  fontFamily: "inherit",
+  cursor: "pointer",
 };
 
 const ghostButton: React.CSSProperties = {

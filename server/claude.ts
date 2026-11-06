@@ -16,12 +16,22 @@ export function getClaude(): ClaudeClient {
   return (real ??= createRealClient());
 }
 
-/** 聞き取り用の台本（答えの数で次の問い）。決めた言い方・「？」2つを含まない文だけ。 */
+/**
+ * 聞き取り用の台本（答えの数で次の問い）。決めた言い方・「？」2つを含まない文だけ。
+ * 4つの角度（①どこが・いつ ②家でのケア ③今の髪型 ④残したい所・避けたいこと）を1問ずつ聞く。
+ */
 export const FAKE_QUESTIONS = [
-  "それは、どんな時に特に気になりますか？",
+  "それは、乾かした後と朝の、どちらが特に気になりますか？",
   "ご自宅では、普段どのようにお手入れされていますか？",
-  "仕上がりで、これだけは避けたいということはありますか？",
+  "今の髪型や長さで、いちばん困っていることは何ですか？",
+  "仕上がりで、残したい所や避けたいことはありますか？",
 ];
+
+/** FAKE_QUESTIONS と同じ並びの、答えの候補（問いの文の中の言葉）。選択肢を入れない問いは空 */
+export const FAKE_SUGGESTIONS: string[][] = [["乾かした後", "朝"], [], [], []];
+
+/** 最初の言葉＋4つの問いの答えが集まったら終わる（4つの角度を聞き終える数） */
+export const FAKE_FINISH_AT = FAKE_QUESTIONS.length + 1;
 
 function createFake(): ClaudeClient {
   const wait = () => new Promise((r) => setTimeout(r, 500));
@@ -31,8 +41,9 @@ function createFake(): ClaudeClient {
       const text = req.messages[req.messages.length - 1]?.content ?? "";
       if (req.system === buildSummarizeSystem()) return fakeSummary(text);
       const n = (text.match(/<answer index="/g) ?? []).length;
-      if (n >= 3) return { action: "finish", text: FINISH_TEXT };
-      return { action: "ask", text: FAKE_QUESTIONS[Math.max(n - 1, 0)] };
+      if (n >= FAKE_FINISH_AT) return { action: "finish", text: FINISH_TEXT, suggestions: [] };
+      const i = Math.max(n - 1, 0);
+      return { action: "ask", text: FAKE_QUESTIONS[i], suggestions: FAKE_SUGGESTIONS[i] };
     },
   };
 }
@@ -40,7 +51,7 @@ function createFake(): ClaudeClient {
 type FakeHint = { kind: "cause" | "home_care" | "hair_and_style"; text: string; from_answers: number[] };
 type FakeBody = { worry: string; hints: FakeHint[] };
 
-// 番号＝お客様の答えの番号（0＝最初の言葉・1＝どんな時に気になるか・2＝ご自宅での手入れ）。
+// 番号＝お客様の答えの番号（0＝最初の言葉・1＝どんな時に気になるか・2＝ご自宅での手入れ・3＝今の髪型・4＝残したい所・避けたいこと）。
 // 録画の練習で映る画面なので、ヒントの文と、その下に出る「もとの答え」が意味でつながるようにしてある。
 const FAKE_BODIES: Record<"volume" | "bangs" | "color" | "generic", FakeBody> = {
   volume: {
@@ -78,8 +89,8 @@ const FAKE_BODIES: Record<"volume" | "bangs" | "color" | "generic", FakeBody> = 
 };
 
 function fakeTopic(userMessage: string): keyof typeof FAKE_BODIES {
-  const first = userMessage.match(/<answer index="0">([\s\S]*?)<\/answer>/)?.[1] ?? "";
-  const all = userMessage.match(/<answer index="\d+">[\s\S]*?<\/answer>/g)?.join("\n") ?? "";
+  const first = userMessage.match(/<answer index="0"[^>]*>([\s\S]*?)<\/answer>/)?.[1] ?? "";
+  const all = userMessage.match(/<answer index="\d+"[^>]*>[\s\S]*?<\/answer>/g)?.join("\n") ?? "";
   for (const text of [first, all]) {
     if (/前髪/.test(text)) return "bangs";
     if (/カラー|染め|色落ち|色が落ち/.test(text)) return "color";
@@ -97,5 +108,7 @@ export function fakeSummary(userMessage: string) {
   return {
     hidden_worry: { text: body.worry, from_answers: clip([0, 1]) },
     hints: body.hints.map((h) => ({ ...h, from_answers: clip(h.from_answers) })),
+    // 最後の問い（④）の答えがある時だけ、その番号を入れる
+    keep: { from_answers: n >= FAKE_FINISH_AT ? [FAKE_FINISH_AT - 1] : [] },
   };
 }

@@ -3,7 +3,7 @@
 // POST { customerId, answer }           … いまの問いへの答えを足して、次の1手を返す
 // GET  ?customerId=p1                   … 今の会話（開き直した画面が続きから出せるように）。会話は消さない
 import { MAX_QUESTIONS } from "../../../lib/config";
-import { nextStep } from "../../../lib/interview";
+import { decideVia, nextStep } from "../../../lib/interview";
 import { getClaude } from "../../../server/claude";
 import { emptySession, findCustomer, loadSession, saveSession, withLock } from "../../../server/store";
 
@@ -26,6 +26,7 @@ export async function GET(req: Request): Promise<Response> {
       status: s.finished ? "finished" : "asking",
       turns: s.turns,
       pending: s.pending,
+      suggestions: s.pending === null ? [] : s.pendingSuggestions,
       finishText: s.finishText,
       answered: s.turns.length,
       max: MAX_QUESTIONS,
@@ -54,8 +55,9 @@ export async function POST(req: Request): Promise<Response> {
         const first = await nextStep([], getClaude());
         const s = emptySession(id);
         s.pending = first.text;
+        s.pendingSuggestions = first.suggestions;
         await saveSession(s);
-        return json({ action: "ask", text: first.text, answered: 0, max: MAX_QUESTIONS });
+        return json({ action: "ask", text: first.text, suggestions: first.suggestions, answered: 0, max: MAX_QUESTIONS });
       }
 
       // 答えを足す
@@ -67,20 +69,24 @@ export async function POST(req: Request): Promise<Response> {
       if (!s || s.pending === null) return json({ error: "まだ始まっていません" }, 409);
       if (s.finished) return json({ error: "もう終わっています" }, 409);
 
-      const turns = [...s.turns, { question: s.pending, answer }];
+      // 答えの印（候補を押したか）はここで決める。画面からの申告は受け取らない
+      const via = decideVia(answer, s.pendingSuggestions);
+      const turns = [...s.turns, via ? { question: s.pending, answer, via } : { question: s.pending, answer }];
       const step = await nextStep(turns, getClaude());
       const next = {
         ...s,
         turns,
         pending: step.action === "ask" ? step.text : null,
+        pendingSuggestions: step.action === "ask" ? step.suggestions : [],
         finished: step.action === "finish",
         finishText: step.action === "finish" ? step.text : null,
       };
       await saveSession(next);
-      // 画面には、文と「終わりか」だけ返す（検査の理由などは返さない）
+      // 画面には、文と候補と「終わりか」だけ返す（検査の理由などは返さない）
       return json({
         action: step.action,
         text: step.text,
+        suggestions: next.pendingSuggestions,
         answered: turns.length,
         max: MAX_QUESTIONS,
       });

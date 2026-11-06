@@ -1,5 +1,5 @@
 // 機械の検査。AI の出力をコードで確かめる。語のリストは名前付きの定数にしてある（直す時はここだけ）。
-import { HINT_KINDS, type Hint, type InterviewStep, type Summary } from "./types";
+import { HINT_KINDS, type Hint, type InterviewStep, type Keep, type Summary } from "./types";
 
 // ---------- 語のリスト ----------
 
@@ -231,6 +231,49 @@ export function checkFinish(text: string): CheckResult {
   return { ok: reasons.length === 0, reasons };
 }
 
+// ---------- 答えの候補（ボタン） ----------
+
+/** 候補1つの最大文字数 */
+export const SUGGESTION_MAX_CHARS = 20;
+/** AI の候補の最大数（決まった候補は別に付く） */
+export const SUGGESTION_MAX_COUNT = 3;
+
+/** 比べる前に、前後の空白と「」『』だけ外す */
+const SUGGESTION_EDGE = /^[\s「」『』]+|[\s「」『』]+$/g;
+/** 候補の中に入れない記号（文や問いを丸ごと入れた物を落とす） */
+const SUGGESTION_MARKS = /[？?。！!\n]/;
+
+/** Claude の返事から suggestions を取り出す（配列でなければ空・文字列以外は捨てる）。中身の良し悪しは cleanSuggestions */
+export function readSuggestions(raw: unknown): string[] {
+  const s = raw && typeof raw === "object" ? (raw as Record<string, unknown>).suggestions : undefined;
+  return Array.isArray(s) ? s.filter((x): x is string => typeof x === "string") : [];
+}
+
+/**
+ * 候補の検査。次を全部満たす物だけ残す。満たさない物は黙って落とす（作り直しの理由にはしない）：
+ *  - 空でない・20文字以内（前後の空白と「」『』を外してから）
+ *  - 問いの文の中に、そのまま含まれる
+ *  - 決めた言い方（DECIDED_PHRASES）に当たらない
+ *  - 先に残した物と同じ・含み合いにならない／多くて3つ
+ * 返すのは外したあとの文。
+ */
+export function cleanSuggestions(question: string, suggestions: unknown): string[] {
+  if (!Array.isArray(suggestions)) return [];
+  const q = question ?? "";
+  const kept: string[] = [];
+  for (const raw of suggestions) {
+    if (typeof raw !== "string") continue;
+    const s = raw.replace(SUGGESTION_EDGE, "");
+    if (!s || s.length > SUGGESTION_MAX_CHARS || SUGGESTION_MARKS.test(s)) continue;
+    if (!q.includes(s)) continue;
+    if (hits(s, DECIDED_PHRASES).length > 0) continue;
+    if (kept.some((k) => k.includes(s) || s.includes(k))) continue;
+    kept.push(s);
+    if (kept.length >= SUGGESTION_MAX_COUNT) break;
+  }
+  return kept;
+}
+
 // ---------- 形の確かめ（Claude の返事は信用しない） ----------
 
 export function parseInterviewStep(raw: unknown): InterviewStep | null {
@@ -240,7 +283,19 @@ export function parseInterviewStep(raw: unknown): InterviewStep | null {
   return { action: r.action, text: r.text };
 }
 
-/** 形だけ確かめる（中身の良し悪しは checkSummary）。kind の値や番号の範囲はここでは見ない */
+/**
+ * keep の番号の検査：整数で、実在する答えの番号（0〜answersCount-1）だけ残す。重なりは1つにまとめ、小さい順に並べる。
+ * 実在しない番号は黙って落とす（それで空になってもよい）。keep の不備で、まとめ全体を不合格にしない。
+ * keep が無い・形が違う時も空にする（古い保存・Claude の取りこぼし）。
+ */
+export function cleanKeep(keep: unknown, answersCount: number): Keep {
+  const fa = keep && typeof keep === "object" ? (keep as Record<string, unknown>).from_answers : undefined;
+  if (!Array.isArray(fa)) return { from_answers: [] };
+  const ok = fa.filter((n): n is number => Number.isInteger(n) && n >= 0 && n < answersCount);
+  return { from_answers: [...new Set(ok)].sort((a, b) => a - b) };
+}
+
+/** 形だけ確かめる（中身の良し悪しは checkSummary）。kind の値や番号の範囲はここでは見ない。keep は無くてよい（空にする） */
 export function parseSummary(raw: unknown): Summary | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -261,6 +316,7 @@ export function parseSummary(raw: unknown): Summary | null {
   return {
     hidden_worry: { text: hw.text, from_answers: hw.from_answers as number[] },
     hints,
+    keep: cleanKeep(r.keep, Number.POSITIVE_INFINITY),
   };
 }
 

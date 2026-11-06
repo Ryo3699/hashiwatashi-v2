@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeFatalError, ClaudeReplyError, FakeClaude } from "../lib/claude";
-import { FINISH_TEXT, FIRST_QUESTION, MAX_QUESTIONS, MODELS } from "../lib/config";
-import { FALLBACK_QUESTIONS, nextStep } from "../lib/interview";
+import { FINISH_TEXT, FIRST_QUESTION, FIXED_SUGGESTIONS, MAX_QUESTIONS, MODELS } from "../lib/config";
+import { buildInterviewSystem, decideVia, FALLBACK_QUESTIONS, nextStep, withFixedSuggestions } from "../lib/interview";
 import type { Turn } from "../lib/types";
 
 const turnsOf = (n: number): Turn[] =>
@@ -159,5 +159,87 @@ describe("nextStep", () => {
     const r = await nextStep(turnsOf(1), fake);
     expect(r.source).toBe("retry");
     expect(fake.calls[1].messages[0].content).toContain("別の文");
+  });
+});
+
+describe("答えの候補（suggestions）", () => {
+  const Q = "乾かした後と朝の、どちらが特に気になりますか？";
+
+  it("最初の問いには候補が出ない", async () => {
+    const r = await nextStep([], new FakeClaude([]));
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it("2問目以降は、AI の候補の後ろに決まった候補が付く", async () => {
+    const fake = new FakeClaude([{ action: "ask", text: Q, suggestions: ["乾かした後", "朝"] }]);
+    const r = await nextStep(turnsOf(1), fake);
+    expect(r.suggestions).toEqual(["乾かした後", "朝", ...FIXED_SUGGESTIONS]);
+  });
+
+  it("AI が選択肢を入れない問いにも、決まった候補は付く", async () => {
+    const fake = new FakeClaude([{ action: "ask", text: "ご自宅では、どのように乾かしていますか？", suggestions: [] }]);
+    expect((await nextStep(turnsOf(2), fake)).suggestions).toEqual(FIXED_SUGGESTIONS);
+    // suggestions が無い返事（古い形）でも通る
+    const old = new FakeClaude([ask("ご自宅では、どのように乾かしていますか？")]);
+    expect((await nextStep(turnsOf(2), old)).suggestions).toEqual(FIXED_SUGGESTIONS);
+  });
+
+  it("検査に落ちた候補は黙って外す：作り直しにはならず、呼び出しは1回", async () => {
+    const fake = new FakeClaude([
+      { action: "ask", text: Q, suggestions: ["乾かした後", "ボブがおすすめ", "夜"] },
+    ]);
+    const r = await nextStep(turnsOf(1), fake);
+    expect(fake.calls.length).toBe(1);
+    expect(r).toMatchObject({ source: "model", attempts: 1 });
+    expect(r.suggestions).toEqual(["乾かした後", ...FIXED_SUGGESTIONS]);
+  });
+
+  it("定型の問い（2回不合格）にも決まった候補が付く", async () => {
+    const fake = new FakeClaude([ask("前髪は短めにしましょう。")], { repeatLast: true });
+    const r = await nextStep(turnsOf(2), fake);
+    expect(r.source).toBe("fallback");
+    expect(r.suggestions).toEqual(FIXED_SUGGESTIONS);
+  });
+
+  it("終わりの文・7問目の後は、候補が空", async () => {
+    const fin = new FakeClaude([
+      { action: "finish", text: "ありがとうございました。当日、担当の美容師が確かめます。", suggestions: ["朝"] },
+    ]);
+    expect((await nextStep(turnsOf(3), fin)).suggestions).toEqual([]);
+    expect((await nextStep(turnsOf(MAX_QUESTIONS), new FakeClaude([]))).suggestions).toEqual([]);
+  });
+
+  it("聞き取りの指示文：4つ目の角度（残したい所・避けたいこと）と、候補の書き方が入っている", () => {
+    const sys = buildInterviewSystem();
+    expect(sys).toContain("④ 残したい所・避けたいこと");
+    expect(sys).toContain("次の4つの角度をそれぞれ1回は聞く");
+    expect(sys).toContain("suggestions");
+    expect(sys).toContain("選択肢に、決めた言い方・原因の推測・施術の提案を入れない");
+    expect(MAX_QUESTIONS).toBe(7);
+  });
+
+  it("withFixedSuggestions", () => {
+    expect(withFixedSuggestions([])).toEqual(FIXED_SUGGESTIONS);
+    expect(withFixedSuggestions(["朝", FIXED_SUGGESTIONS[0]])).toEqual(["朝", FIXED_SUGGESTIONS[0], FIXED_SUGGESTIONS[1]]);
+  });
+});
+
+describe("decideVia：答えの印はサーバーで決める", () => {
+  const sugg = ["乾かした後", "朝", ...FIXED_SUGGESTIONS];
+
+  it("候補と同じ → chip（前後の空白は無視）", () => {
+    expect(decideVia("乾かした後", sugg)).toBe("chip");
+    expect(decideVia("  朝 ", sugg)).toBe("chip");
+    expect(decideVia("特にないです", sugg)).toBe("chip");
+  });
+  it("候補で始まってそれより長い → chip_edited", () => {
+    expect(decideVia("乾かした後、特に横が広がります", sugg)).toBe("chip_edited");
+    expect(decideVia("朝は時間がないです", sugg)).toBe("chip_edited");
+  });
+  it("関係ない答え・候補が無い時・空は、印なし", () => {
+    expect(decideVia("夜に気になります", sugg)).toBeUndefined();
+    expect(decideVia("前の朝は", sugg)).toBeUndefined();
+    expect(decideVia("朝", [])).toBeUndefined();
+    expect(decideVia("   ", sugg)).toBeUndefined();
   });
 });

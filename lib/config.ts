@@ -18,6 +18,9 @@ export const FIRST_QUESTION = "今日いちばん気になっていることは�
 export const FINISH_TEXT =
   "ありがとうございました。いただいた内容をもとに、当日、担当の美容師が確かめます。";
 
+/** 決まった候補（最初の問い以外のすべての問いに、AI の候補の後ろに付ける） */
+export const FIXED_SUGGESTIONS = ["特にないです", "うまく言えないです"];
+
 /** お客様の答え1つの最大文字数（プロンプトに入れる前に切る） */
 export const MAX_ANSWER_CHARS = 500;
 

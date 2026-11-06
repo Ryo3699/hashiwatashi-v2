@@ -67,17 +67,26 @@ async function personaAnswer(p: Persona, turns: Turn[], question: string, claude
 // ---------- 偽物の Claude（--fake） ----------
 // 聞き取り／まとめ／お客様役を、system の中身で見分けて返す。人ごとに1つ作る。
 
-const FAKE_FINISH_AT = 4; // 答えが4つ集まったら終わる
+// 最初の言葉＋4つの角度（①どこが・いつ ②家でのケア ③今の髪型 ④残したい所・避けたいこと）の答えが集まったら終わる
 const FAKE_QUESTIONS = [
-  "そのお悩みは、普段どんな時に特に気になりますか？",
+  "そのお悩みは、乾かした後と朝の、どちらが特に気になりますか？",
   "ご自宅では、普段どのようにお手入れされていますか？",
-  "仕上がりで、これだけは避けたいということはありますか？",
+  "今の髪型や長さで、いちばん困っていることは何ですか？",
+  "仕上がりで、残したい所や避けたいことはありますか？",
 ];
+// FAKE_QUESTIONS と同じ並びの答えの候補。2つ目の「おすすめはカット」は問いの文に無いので、検査で黙って落ちる
+const FAKE_SUGGESTIONS: string[][] = [["乾かした後", "朝", "おすすめはカット"], [], [], []];
+const FAKE_FINISH_AT = FAKE_QUESTIONS.length + 1;
 const FAKE_FINISH_TEXT = "ありがとうございます。当日、担当の美容師が確かめます。";
 
-type FakeSummary = { hidden_worry: { text: string; from_answers: number[] }; hints: { kind: string; text: string; from_answers: number[] }[] };
+type FakeSummary = {
+  hidden_worry: { text: string; from_answers: number[] };
+  hints: { kind: string; text: string; from_answers: number[] }[];
+  keep: { from_answers: number[] };
+};
 
-// 番号＝お客様の答えの番号（0＝最初の言葉・1〜3＝persona の facts の順）
+// 番号＝お客様の答えの番号（0＝最初の言葉・1〜3＝persona の facts の順・4＝facts の最初に戻る）。
+// keep は「避けたい・したくない」と言っている答えの番号
 const FAKE_SUMMARIES: Record<string, FakeSummary> = {
   p1: {
     hidden_worry: {
@@ -89,6 +98,7 @@ const FAKE_SUMMARIES: Record<string, FakeSummary> = {
       { kind: "home_care", text: "朝が自然乾燥のため、乾かし方でまとまりが変わる余地があるかもしれません。", from_answers: [3] },
       { kind: "hair_and_style", text: "毛先は薄くしたくないので、今の髪質と長さの組み合わせを確かめる必要があるかもしれません。", from_answers: [2] },
     ],
+    keep: { from_answers: [2] },
   },
   p2: {
     hidden_worry: {
@@ -101,6 +111,8 @@ const FAKE_SUMMARIES: Record<string, FakeSummary> = {
       // 検査で外れるヒント（推測の言い方でなく言い切り）→ removed に残る
       { kind: "cause", text: "前髪が割れるのは湿気のせいです。", from_answers: [1] },
     ],
+    // 99 は実在しない番号 → 検査で黙って落ちる（実在する3だけ残る）
+    keep: { from_answers: [3, 99] },
   },
   p3: {
     hidden_worry: {
@@ -113,6 +125,7 @@ const FAKE_SUMMARIES: Record<string, FakeSummary> = {
       // 1回目だけ入れる NG のヒント（作り直しで消える）
       { kind: "cause", text: "色が落ちるのはシャンプーが合っていないからです。", from_answers: [2] },
     ],
+    keep: { from_answers: [3] },
   },
 };
 
@@ -130,12 +143,12 @@ function makeFake(p: Persona): FakeClaude {
 
     if (req.system === interviewSystem) {
       const n = countAnswers(content);
-      if (n >= FAKE_FINISH_AT) return { action: "finish", text: FAKE_FINISH_TEXT };
+      if (n >= FAKE_FINISH_AT) return { action: "finish", text: FAKE_FINISH_TEXT, suggestions: [] };
       // p1 の2つ目の問いだけ、1回目はわざと「？」2つ → 作り直される流れを見せる
       if (p.id === "p1" && n === 2 && !isRetry) {
-        return { action: "ask", text: "どこが気になりますか？それとも、朝の時間のことですか？" };
+        return { action: "ask", text: "どこが気になりますか？それとも、朝の時間のことですか？", suggestions: [] };
       }
-      return { action: "ask", text: FAKE_QUESTIONS[(n - 1) % FAKE_QUESTIONS.length] };
+      return { action: "ask", text: FAKE_QUESTIONS[(n - 1) % FAKE_QUESTIONS.length], suggestions: FAKE_SUGGESTIONS[(n - 1) % FAKE_QUESTIONS.length] };
     }
 
     if (req.system === summarizeSystem) {
@@ -154,13 +167,30 @@ function makeFake(p: Persona): FakeClaude {
 
 // ---------- 1人ぶん ----------
 
-type StepLog = { question_no: number; action: string; text: string; source: string; attempts: number; reasons: string[] };
+type StepLog = {
+  question_no: number;
+  action: string;
+  text: string;
+  source: string;
+  attempts: number;
+  reasons: string[];
+  /** 画面に出す答えの候補（AI の候補＋決まった候補） */
+  suggestions: string[];
+};
 
 async function runOne(p: Persona, claude: ClaudeClient, stamp: string, mode: "fake" | "real") {
   const turns: Turn[] = [];
   const steps: StepLog[] = [];
   const record = (r: InterviewResult) =>
-    steps.push({ question_no: turns.length + 1, action: r.action, text: r.text, source: r.source, attempts: r.attempts, reasons: r.reasons });
+    steps.push({
+      question_no: turns.length + 1,
+      action: r.action,
+      text: r.text,
+      source: r.source,
+      attempts: r.attempts,
+      reasons: r.reasons,
+      suggestions: r.suggestions,
+    });
 
   let step = await nextStep(turns, claude); // 最初は決まった問い
   record(step);
@@ -186,6 +216,8 @@ async function runOne(p: Persona, claude: ClaudeClient, stamp: string, mode: "fa
     steps,
     questions_asked: turns.length,
     summary: sum.summary,
+    /** 残したい所・避けたいこととして挙がった答えの番号（空＝聞き取りでは出ていない） */
+    keep_from_answers: sum.summary.keep.from_answers,
     removed: sum.removed,
     summarize_attempts: sum.attempts,
     summarize_failed: sum.failed,
@@ -197,10 +229,12 @@ async function runOne(p: Persona, claude: ClaudeClient, stamp: string, mode: "fa
   fs.writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
 
   const kinds = sum.summary.hints.map((h) => h.kind).join("・") || "なし";
+  const keepNos = sum.summary.keep.from_answers;
+  const keepText = keepNos.length > 0 ? keepNos.join("・") : "空";
   const retried = steps.filter((s) => s.source === "retry").length;
   const fell = steps.filter((s) => s.source === "fallback").length;
   console.log(
-    `${p.id}：${turns.length}問で終了／ヒント${sum.summary.hints.length}件（${kinds}）／検査で外した数 ${sum.removed.length}` +
+    `${p.id}：${turns.length}問で終了／ヒント${sum.summary.hints.length}件（${kinds}）／keep の番号 ${keepText}／検査で外した数 ${sum.removed.length}` +
       `／聞き取りの作り直し ${retried}・定型に落ちた ${fell}／まとめ呼び出し ${sum.attempts}回${sum.failed ? "（まとめ失敗）" : ""}` +
       `\n    → ${path.relative(process.cwd(), file)}`,
   );

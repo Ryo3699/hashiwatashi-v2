@@ -1,7 +1,7 @@
 "use client";
 // 美容師のスマホ画面。隠れた悩みと、3種類の「なぜ」のヒント。ヒントごとに、もとのお客様の答えを原文で小さく添える。
 import { useCallback, useEffect, useState } from "react";
-import { HINT_KINDS, HINT_KIND_LABEL, type Summary, type Turn } from "../../../lib/types";
+import { HINT_KINDS, HINT_KIND_LABEL, type Summary, type Turn, type Via } from "../../../lib/types";
 import { COLORS, RADIUS } from "../../theme";
 
 type View =
@@ -131,6 +131,7 @@ function Ready({
   working: boolean;
 }) {
   const { summary, turns } = view;
+  const keepIndexes = validIndexes(summary.keep?.from_answers ?? [], turns.length);
   return (
     <>
       {view.failed && (
@@ -147,6 +148,16 @@ function Ready({
         <p style={bodyText}>{summary.hidden_worry.text}</p>
         <Sources turns={turns} indexes={summary.hidden_worry.from_answers} />
       </Card>
+
+      {!view.failed && (
+        <Card title="残したい所・避けたいこと（お客様の言葉）">
+          {keepIndexes.length > 0 ? (
+            <Sources turns={turns} indexes={keepIndexes} />
+          ) : (
+            <p style={bodyText}>聞き取りでは出ていません。当日確かめてください。</p>
+          )}
+        </Card>
+      )}
 
       {!view.failed && (
         <section style={{ display: "grid", gap: 14 }}>
@@ -182,7 +193,10 @@ function Ready({
           {turns.map((t, i) => (
             <div key={i} style={{ fontSize: 12.5, lineHeight: 1.7, color: COLORS.sub }}>
               <div>問{i + 1}：{t.question}</div>
-              <div style={{ color: COLORS.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>答え{i + 1}：{t.answer}</div>
+              <div style={{ color: COLORS.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                答え{i + 1}：{t.answer}
+                <ViaMark via={t.via} />
+              </div>
             </div>
           ))}
         </div>
@@ -191,9 +205,26 @@ function Ready({
   );
 }
 
+/** 答えの印（サーバーが決めた物）を、美容師に見える言葉にする */
+const VIA_LABEL: Record<Via, string> = {
+  chip: "（候補から選んだ）",
+  chip_edited: "（候補に書き足した）",
+};
+
+/** 候補を使った答えにだけ、小さく印を付ける */
+function ViaMark({ via }: { via?: Via }) {
+  if (!via) return null;
+  return <span style={{ marginLeft: 4, color: COLORS.sub }}>{VIA_LABEL[via]}</span>;
+}
+
+/** 実在するお客様の答えの番号だけ残す */
+function validIndexes(indexes: number[], count: number): number[] {
+  return indexes.filter((n) => Number.isInteger(n) && n >= 0 && n < count);
+}
+
 /** もとになったお客様の答えを、原文のまま小さく */
 function Sources({ turns, indexes }: { turns: Turn[]; indexes: number[] }) {
-  const valid = indexes.filter((n) => Number.isInteger(n) && n >= 0 && n < turns.length);
+  const valid = validIndexes(indexes, turns.length);
   if (valid.length === 0) return null;
   return (
     <div style={{ marginTop: 8, display: "grid", gap: 4 }}>
@@ -211,6 +242,7 @@ function Sources({ turns, indexes }: { turns: Turn[]; indexes: number[] }) {
           }}
         >
           お客様の答え{n + 1}：「{turns[n].answer}」
+          <ViaMark via={turns[n].via} />
         </div>
       ))}
     </div>
