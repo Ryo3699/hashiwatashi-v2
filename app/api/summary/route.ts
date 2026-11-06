@@ -3,6 +3,8 @@
 // POST { customerId }  … 聞き取りが終わっていれば、まとめを作って保存（作成済みならそれを返す）
 import { summarize } from "../../../lib/summarize";
 import { getClaude } from "../../../server/claude";
+import { karteView, loadKarte } from "../../../server/karte";
+import type { KarteView } from "../../../lib/types";
 import { findCustomer, loadSession, saveSession, withLock, type Session } from "../../../server/store";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +14,14 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-function view(s: Session | null) {
-  if (!s || (s.turns.length === 0 && !s.finished)) return { status: "none" as const };
-  const base = { turns: s.turns, answered: s.turns.length };
+/** カルテ（美容師のメモ）。状態に関係なく、今の来店のと前回のを付ける */
+async function karteOf(customerId: string, s: Session | null): Promise<KarteView> {
+  return karteView((await loadKarte(customerId)).entries, s);
+}
+
+function view(s: Session | null, karte: KarteView) {
+  if (!s || (s.turns.length === 0 && !s.finished)) return { status: "none" as const, karte };
+  const base = { turns: s.turns, answered: s.turns.length, karte };
   if (!s.finished) return { status: "interviewing" as const, ...base };
   if (!s.result) return { status: "finished" as const, ...base };
   return {
@@ -30,7 +37,8 @@ export async function GET(req: Request): Promise<Response> {
   const customer = findCustomer(new URL(req.url).searchParams.get("customerId"));
   if (!customer) return json({ error: "お客様が見つかりません" }, 404);
   try {
-    return json(view(await loadSession(customer.id)));
+    const s = await loadSession(customer.id);
+    return json(view(s, await karteOf(customer.id, s)));
   } catch (e) {
     console.error("[api/summary GET]", e instanceof Error ? e.message : "error");
     return json({ error: "読めませんでした" }, 500);
@@ -51,7 +59,7 @@ export async function POST(req: Request): Promise<Response> {
     return await withLock(customer.id, async () => {
       const s = await loadSession(customer.id);
       if (!s || !s.finished) return json({ error: "聞き取りがまだ終わっていません" }, 409);
-      if (s.result) return json(view(s));
+      if (s.result) return json(view(s, await karteOf(customer.id, s)));
       const r = await summarize(s.turns, getClaude());
       const next: Session = {
         ...s,
@@ -59,7 +67,7 @@ export async function POST(req: Request): Promise<Response> {
       };
       // 形が2回壊れて失敗した時は保存しない（「作り直す」でもう一度作れるように）
       if (!r.failed) await saveSession(next);
-      return json(view(next));
+      return json(view(next, await karteOf(customer.id, next)));
     });
   } catch (e) {
     console.error("[api/summary POST]", e instanceof Error ? e.message : "error");

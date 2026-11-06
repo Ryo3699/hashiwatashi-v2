@@ -55,3 +55,25 @@ export type Removed = {
 
 export type InterviewAction = "ask" | "finish";
 export type InterviewStep = { action: InterviewAction; text: string };
+
+// ---------- カルテ（美容師が施術の後に書く、短いメモ。AI は書かない） ----------
+/** カルテの「やったこと」「次に確かめること」の最大字数 */
+export const KARTE_MAX_LEN = 200;
+
+export type KarteEntry = {
+  /** 来店の区切り（Session.visitId）。同じ来店は1件 */
+  visitId: string;
+  /** 残した時刻（ISO） */
+  savedAt: string;
+  /** その来店のお客様の答え1の原文（無ければ null）。保存の時に写す */
+  wish: string | null;
+  /** その来店の「残したい所・避けたいこと」＝keep が指す答えの原文。保存の時に写す */
+  keep: string[];
+  /** 今日やったこと（美容師） */
+  did: string;
+  /** 次に確かめること（美容師） */
+  next: string;
+};
+
+/** 美容師の画面に渡す形：今の来店のカルテと、前回までで一番新しいカルテ */
+export type KarteView = { current: KarteEntry | null; previous: KarteEntry | null };

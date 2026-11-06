@@ -1,5 +1,6 @@
 // サーバー側の保存。お客様ごとに data/runtime/<id>.json へ会話とまとめを残す（.gitignore 済み）。
 // 録画の練習で再起動しても残る／API ルートごとにモジュールが分かれても同じ物を見る、ためにファイルにしている。
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import customers from "../data/customers.json";
@@ -9,6 +10,8 @@ export type StoredResult = { summary: Summary; removedCount: number; failed: boo
 
 export type Session = {
   customerId: string;
+  /** 来店の区切り。「最初から」で新しくなる。カルテはこれごとに1件 */
+  visitId: string;
   turns: Turn[];
   /** いまお客様に出している問い（次の答えは、この問いへの答え） */
   pending: string | null;
@@ -25,7 +28,7 @@ export function findCustomer(id: unknown): { id: string; name: string } | null {
   return customers.find((c) => c.id === id) ?? null;
 }
 
-function runtimeDir(): string {
+export function runtimeDir(): string {
   return process.env.HASHI_RUNTIME_DIR || path.join(process.cwd(), "data", "runtime");
 }
 
@@ -38,6 +41,7 @@ function fileOf(id: string): string {
 export function emptySession(customerId: string): Session {
   return {
     customerId,
+    visitId: randomUUID(),
     turns: [],
     pending: null,
     pendingSuggestions: [],
@@ -48,12 +52,14 @@ export function emptySession(customerId: string): Session {
   };
 }
 
-/** 古い保存（pendingSuggestions・summary.keep・Turn.via が無い）を、今の形として読めるようにする */
+/** 古い保存（visitId・pendingSuggestions・summary.keep・Turn.via が無い）を、今の形として読めるようにする */
 function normalizeSession(s: Session): Session {
   const result = s.result && !s.result.summary.keep
     ? { ...s.result, summary: { ...s.result.summary, keep: { from_answers: [] } } }
     : s.result;
-  return { ...s, pendingSuggestions: s.pendingSuggestions ?? [], result };
+  // visitId が無い古い保存には、読むたびに同じ値を入れる（updatedAt は読むだけでは変わらない）
+  const visitId = s.visitId || `legacy-${s.updatedAt}`;
+  return { ...s, visitId, pendingSuggestions: s.pendingSuggestions ?? [], result };
 }
 
 export async function loadSession(id: string): Promise<Session | null> {
