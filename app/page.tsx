@@ -27,6 +27,7 @@ export default function Home() {
           </li>
         ))}
       </ul>
+      {isPublicMode() && <JudgeNotes />}
     </main>
   );
 }
@@ -68,16 +69,26 @@ const stylistButton: CSSProperties = {
   color: COLORS.accent,
 };
 
-/** 審査用リンク（公開モード）の時だけ出す、手順と注意 */
+// 審査用リンク（公開モード）の時だけ出す枠。手順はボタンの上、注意はボタンの下（小さい画面でも、開いてすぐボタンが見えるように）
+const judgeBox = { background: "#f4f1ea", borderRadius: 12, padding: "14px 16px", fontSize: 13, lineHeight: 1.8 } as const;
+
+/** ボタンの上に出す、手順 */
 function JudgeGuide() {
-  const box = { background: "#f4f1ea", borderRadius: 12, padding: "14px 16px", margin: "0 0 20px", fontSize: 13, lineHeight: 1.8 } as const;
   return (
-    <section style={box} aria-label="審査用のお試しの案内">
+    <section style={{ ...judgeBox, margin: "0 0 20px" }} aria-label="審査用のお試しの案内">
       <p style={{ margin: "0 0 6px", fontWeight: 700 }}>審査用のお試し</p>
-      <ol style={{ margin: "0 0 8px", paddingLeft: 20 }}>
+      <ol style={{ margin: 0, paddingLeft: 20 }}>
         <li>お客様の画面で、架空のお客様になって答えてください（5問ほど・2〜3分）。</li>
         <li>終わったら、<strong>同じブラウザで</strong>美容師の画面を開いてください。</li>
       </ol>
+    </section>
+  );
+}
+
+/** ボタンの下に出す、注意 */
+function JudgeNotes() {
+  return (
+    <section style={{ ...judgeBox, margin: "20px 0 0" }} aria-label="審査用のお試しの注意">
       <ul style={{ margin: 0, paddingLeft: 20 }}>
         <li>架空の内容で答えてください。</li>
         <li>答えは Anthropic の Claude に送られます。</li>

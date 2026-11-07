@@ -71,7 +71,7 @@
 - `store.ts` の `loadSession`／`saveSession`、`karte.ts` の読み書きは、`fs` を直接呼ぶ所だけを `readText`／`writeText` に置き換える（ほかの中身は触らない。`karte.ts` は別の作業が今直しているので、差分は読み書きの数行に留める）
 
 ### 4. 画面（公開モードの時だけ）
-- トップ（`app/page.tsx`・サーバー側で `process.env.HASHI_PUBLIC` を読む）に、短い手順と注意を出す：
+- トップ（`app/page.tsx`・サーバー側で `process.env.HASHI_PUBLIC` を読む）に、短い手順と注意を出す（手順はボタンの上、注意と英語はボタンの下＝小さい画面でも、開いてすぐボタンが見えるように）：
   - 手順：①お客様の画面で、架空のお客様になって答える（5問ほど・2〜3分）②終わったら、**同じブラウザで**美容師の画面を開く
   - 注意：架空の内容で答えてください／答えは Anthropic の Claude に送られます／保存は暗号化して置き、最後に保存してから72時間で消える。保存された物を運営は読めない（処理の間だけサーバーが復号する）／別の端末やブラウザでは、別のお試しになります
   - 英語の短い版も下に（Judge demo: answer as a fictional customer, then open the stylist screen in the same browser. Answers are sent to Anthropic's Claude; saved data is encrypted and deleted 72 hours after the last save, and the operator cannot read it.）
