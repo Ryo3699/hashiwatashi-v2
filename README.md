@@ -85,7 +85,7 @@
 - 前の作り（11/6・「残したい所・避けたいこと」を聞く前）では、試し6回中5回、避けたいことが出てこなかった（[docs/trial_results_2026-11-06.md](docs/trial_results_2026-11-06.md)）
 - このほか、画面から p1（ミサキさん）を1回通して録画した（上の画像）。5問・ヒント3つ・外した数0。3問目と4問目は候補のボタンを押して書き足した答えで、美容師の画面では「（候補に書き足した）」と出る。録画では、お客様役の AI に画面の候補ボタンを知らせ、当てはまる時に使うよう頼んだ（そのため4問目の「量」は、お客様役の事実には無い言葉。試し6回ではこの頼みはしていない）
 - 試しの結果のファイル `runs/` はリポに入れていない（下の「素の Claude との比べ」の結果だけは `docs/baseline/` に入れた）
-- テスト：216本（`npm test`・偽物の Claude だけ・ネット不要・カルテの21本を含む）。型チェック（`npm run typecheck`）も通る
+- テスト：285本（`npm test`・偽物の Claude だけ・ネット不要・カルテの21本と審査員リンク（[docs/judge_link.md](docs/judge_link.md)）の69本を含む）。型チェック（`npm run typecheck`）も通る
 
 ## 素の Claude との比べ（各1回）
 同じモデル・同じお客様役（架空の3人）で、指示文が一言だけの「ふつうの AI チャット」に通した。
@@ -126,7 +126,7 @@ hashiwatashi は **AI に答えさせず、決めさせない**。聞いて、�
 npm install
 ANTHROPIC_API_KEY=... npm run dev   # http://localhost:3400
 HASHI_FAKE=1 npm run dev            # 鍵なし・偽物の Claude
-npm test                            # テスト216本（偽物の Claude だけ・ネット不要）
+npm test                            # テスト285本（偽物の Claude だけ・ネット不要）
 ANTHROPIC_API_KEY=... npm run trial # 架空のお客様3人を本物で通す（npm run trial -- --fake で偽物）
 ```
 - トップ（`/`）から、お客様の画面（`/customer/p1`）と美容師の画面（`/stylist/p1`）を開ける
@@ -158,7 +158,7 @@ Built by a working hairdresser who doesn't write code. Claude interviewed the ha
 
 Claude usage: Sonnet 5.5 for the interview and Opus 5.5 for the stylist summary, both with JSON-schema structured output (`suggestions` for chips; `keep` holds only answer numbers). Code checks reject decisive phrasing, non-hedged hints, medical claims and citations to answers that don't exist; one regeneration with reasons, then a fixed fallback or the hint is dropped. Customer answers are wrapped in `<answer>` tags, marked `via="chip"` / `via="chip_edited"` so a tapped chip counts as weaker evidence.
 
-Results with real Claude on three fictional customers (6 runs on the current version): every run ended in 5 questions with 3 hedged hints and none dropped; the summary was never regenerated and 1 of 30 questions was. What the customer wanted to avoid reached the stylist's "keep / avoid" card in 6 of 6 runs (the earlier build missed it in 5 of 6). The AI offered choice chips in 3 of 6 runs. 216 tests pass (21 of them for the karte).
+Results with real Claude on three fictional customers (6 runs on the current version): every run ended in 5 questions with 3 hedged hints and none dropped; the summary was never regenerated and 1 of 30 questions was. What the customer wanted to avoid reached the stylist's "keep / avoid" card in 6 of 6 runs (the earlier build missed it in 5 of 6). The AI offered choice chips in 3 of 6 runs. 285 tests pass (21 of them for the karte, 69 for the judge link).
 
 Compared with plain Claude (same models, a one-line prompt, one run each): its summaries read well, but it asked 2–4 questions at once, put treatment suggestions in the summary, and rewrote "please thin it out" as "wants less volume". Note the yardstick is v2's own rules (script: `scripts/baseline.ts`; table and raw outputs: `docs/baseline/`). Pre-visit AI counseling already exists; what hashiwatashi adds is that the AI neither answers nor decides — it asks, and hands the material to the stylist in front of the customer.
 
