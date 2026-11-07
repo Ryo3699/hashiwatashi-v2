@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import customers from "../data/customers.json";
 import { isPublicMode } from "../server/public";
+import { COLORS, RADIUS } from "./theme";
 
 // 公開モードかどうかを、ビルド時でなく開くたびに見る
 export const dynamic = "force-dynamic";
@@ -12,17 +14,59 @@ export default function Home() {
         お客様の画面と、美容師の画面です。AIは決めません。推測・参考までです。（お客様は全員、架空の人です）
       </p>
       {isPublicMode() && <JudgeGuide />}
+      {/* お客様ごとに1枚。先に押すお客様の画面を塗り、美容師の画面は枠だけにして順番が見えるようにする */}
       <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}>
         {customers.map((c) => (
-          <li key={c.id} style={{ display: "grid", gap: 6 }}>
-            <a href={`/customer/${c.id}`}>お客様の画面（{c.name}）</a>
-            <a href={`/stylist/${c.id}`}>美容師の画面（{c.name}）</a>
+          <li key={c.id} style={card}>
+            <a href={`/customer/${c.id}`} style={customerButton}>
+              お客様の画面（{c.name}）
+            </a>
+            <a href={`/stylist/${c.id}`} style={stylistButton}>
+              美容師の画面（{c.name}）
+            </a>
           </li>
         ))}
       </ul>
     </main>
   );
 }
+
+const card: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  padding: 14,
+  background: COLORS.card,
+  border: `1px solid ${COLORS.line}`,
+  borderRadius: RADIUS,
+};
+
+// 指で押しやすい大きさ（高さ48px以上）の、丸いボタン型のリンク
+const buttonBase: CSSProperties = {
+  display: "block",
+  minHeight: 48,
+  boxSizing: "border-box",
+  padding: "13px 16px",
+  borderRadius: 999,
+  fontSize: 16,
+  fontWeight: 500,
+  lineHeight: 1.4,
+  textAlign: "center",
+  textDecoration: "none",
+};
+
+const customerButton: CSSProperties = {
+  ...buttonBase,
+  background: COLORS.accent,
+  border: `1px solid ${COLORS.accent}`,
+  color: "#fff",
+};
+
+const stylistButton: CSSProperties = {
+  ...buttonBase,
+  background: COLORS.card,
+  border: `1px solid ${COLORS.accent}`,
+  color: COLORS.accent,
+};
 
 /** 審査用リンク（公開モード）の時だけ出す、手順と注意 */
 function JudgeGuide() {
