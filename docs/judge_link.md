@@ -109,7 +109,7 @@ HASHI_PUBLIC=1 HASHI_KV=memory ANTHROPIC_API_KEY=... npm run dev   # 本物の C
 - **実測（2026-11-07・保護つきの試しの版・本物の Claude と Upstash）**：聞き取りの答え7回（Sonnet・入力 11,599／出力 1,033 トークン）＋まとめ1回（Opus・入力 2,088／出力 831）で 約 $0.06。1人が最後まで通すと 約 $0.05〜0.06 で、上の見積もりより安い（記録は少なめに出ることがある＝下の `demo_usage` の注意）。読み方は `vercel env run -e production -- node --import tsx scripts/demo_usage.ts`（鍵をファイルに落とさない）
 - **Vercel の上で確かめたこと（2026-11-07）**：クッキーが出る・クッキー無しは 401・別の訪問者には前の人の会話が見えない（同じお客様でも `{"status":"none"}`）・本物の Claude で聞き取り→まとめ（Opus 11秒）→カルテ保存・使った量が Upstash に残る・`HASHI_LIMIT_VISITOR_DAY=3` の使い捨ての版で4回目が 429
 - **保存先**：Upstash for Redis `hashiwatashi-judge`（無料プラン `--plan free`・地域 iad1・Production と Preview につないだ）。規約の同意は Vercel が本人のブラウザでの操作を求める（CLI はエージェントが動かすと `verification_uri` を返して止まる）
-- **今の Vercel の設定（2026-11-07）**：既定より絞って、全体/日 `HASHI_LIMIT_GLOBAL_DAY=300`（聞き取りおよそ30回分）・IP/時 `HASHI_LIMIT_IP_HOUR=60`・まとめ/日 `HASHI_LIMIT_SUMMARY_DAY=60`。足りなければ環境変数を変えて配り直す
+- **今の Vercel の設定（2026-11-07）**：全体/日 `HASHI_LIMIT_GLOBAL_DAY=1000`（最後まで通しておよそ100人分・審査に備えて 300→1000 に上げた）・IP/時 `HASHI_LIMIT_IP_HOUR=60`・まとめ/日 `HASHI_LIMIT_SUMMARY_DAY=60`。足りなければ環境変数を変えて配り直す
 - **本当の天井は Anthropic のコンソール側**：審査用の鍵は専用のワークスペースで作り、そのワークスペースに月の利用上限（例 $50）を必ず置く（コードの数えが破れた時の最後の砦）。毎日 `HASHI_PUBLIC=1 npm run demo:usage` を見て、目安を超えたら `HASHI_DEMO_OFF=1` で止める
 - 審査の当日は、`HASHI_LIMIT_GLOBAL_DAY` を余裕を持って上げる運用でよい（その分の費用の天井も上がる）。日本時間の0時をまたぐと、上限は2回分使える
 - GET は数えない（Redis の読み出しと関数の呼び出しは無制限）。Upstash の月間コマンド数の枠を確認する。枠が尽きると数えが失敗して全員 503（閉じる側・仕様どおり）
