@@ -2,7 +2,7 @@
 // POST { customerId, did, next, visitId? } … 今の来店（Session.visitId）のカルテとして保存（同じ来店なら上書き）。
 //   visitId＝画面が見ている来店（美容師の画面は必ず送る）。今の来店と違えば 409（画面が古い）＝別の来店に混ぜない
 //   返り値 { karte: { current, previous } }
-import { KARTE_VISIT_CHANGED } from "../../../lib/types";
+import { KARTE_MAX_LEN, KARTE_VISIT_CHANGED } from "../../../lib/types";
 import { cleanKarteText, saveKarteEntry } from "../../../server/karte";
 import { findCustomer, loadSession, withLock } from "../../../server/store";
 
@@ -24,7 +24,7 @@ export async function POST(req: Request): Promise<Response> {
   if (body.visitId !== undefined && typeof body.visitId !== "string") return json({ error: "形が正しくありません" }, 400);
   const visitId = body.visitId;
   const text = cleanKarteText(body.did, body.next);
-  if (!text) return json({ error: "「やったこと」「次に確かめること」のどちらかを200字までで書いてください" }, 400);
+  if (!text) return json({ error: `「やったこと」「次に確かめること」のどちらかを${KARTE_MAX_LEN}字までで書いてください` }, 400);
 
   try {
     return await withLock(customer.id, async () => {

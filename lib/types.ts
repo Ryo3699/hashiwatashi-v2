@@ -57,8 +57,8 @@ export type InterviewAction = "ask" | "finish";
 export type InterviewStep = { action: InterviewAction; text: string };
 
 // ---------- カルテ（美容師が施術の後に書く、短いメモ。AI は書かない） ----------
-/** カルテの「やったこと」「次に確かめること」の最大字数 */
-export const KARTE_MAX_LEN = 200;
+/** カルテの「やったこと」「次に確かめること」の最大字数（11/7 Ryo「２００文字じゃちょっと少ないな」→ 500） */
+export const KARTE_MAX_LEN = 500;
 
 export type KarteEntry = {
   /** 来店の区切り（Session.visitId）。同じ来店は1件 */

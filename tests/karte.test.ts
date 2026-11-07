@@ -82,12 +82,15 @@ describe("api/karte", () => {
     expect((await karte({ customerId: "../x", did: "a", next: "b" })).status).toBe(404);
   });
 
-  it("形が違う・did と next が両方空・200字超えは 400", async () => {
+  it("形が違う・did と next が両方空・上限（KARTE_MAX_LEN）超えは 400", async () => {
     expect((await karte({ customerId: "p1", did: "  ", next: "" })).status).toBe(400);
     expect((await karte({ customerId: "p1", did: 1, next: "b" })).status).toBe(400);
     expect((await karte({ customerId: "p1", did: "a" })).status).toBe(400);
     expect((await karte({ customerId: "p1", did: "あ".repeat(KARTE_MAX_LEN + 1), next: "" })).status).toBe(400);
     expect((await karte({ customerId: "p1", did: "", next: "あ".repeat(KARTE_MAX_LEN + 1) })).status).toBe(400);
+    // 画面に出す文の字数は、上限の数と同じ（決め打ちの数を残さない）
+    const tooLong = await (await karte({ customerId: "p1", did: "あ".repeat(KARTE_MAX_LEN + 1), next: "" })).json();
+    expect(tooLong.error).toContain(`${KARTE_MAX_LEN}字`);
     const bad = await kartePost(new Request("http://x/api", { method: "POST", body: "{" }));
     expect(bad.status).toBe(400);
   });
@@ -99,7 +102,7 @@ describe("api/karte", () => {
     expect(existsSync(path.join(dir, "p1.karte.json"))).toBe(false);
   });
 
-  it("同じ来店で2回残すと1件のまま上書き。前後の空白は落ちる。200字ちょうどは通る", async () => {
+  it("同じ来店で2回残すと1件のまま上書き。前後の空白は落ちる。上限ちょうどは通る", async () => {
     await runInterview("p1");
     await summaryPost(post({ customerId: "p1" }));
     const first = await (await karte({ customerId: "p1", did: "  毛先をすいた \n", next: "乾かし方を聞く" })).json();
